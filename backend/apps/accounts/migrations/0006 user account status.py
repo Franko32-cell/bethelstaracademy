@@ -3,11 +3,8 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
 
-    # Depends on the last migration visible in your apps/accounts/migrations/
-    # directory tree (0005_create_admin.py). If you've added a 0006/0007 since
-    # then, update this dependency to match before running migrate.
     dependencies = [
-        ("accounts", "0005_create_admin"),
+        ("accounts", "0003_user_is_approved"),
     ]
 
     operations = [
