@@ -38,7 +38,7 @@ def reverse_admin(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-    ('accounts', '0003_user_is_approved'),
+    ('accounts', '0007_alter_user_account_status_alter_user_archived_at.py'),
 ]
 
     operations = [
