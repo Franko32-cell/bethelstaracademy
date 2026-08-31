@@ -288,7 +288,7 @@ def build_page1_header(admission):
 
     centre_content = [
         para("BETHEL STAR ACADEMY",  15, bold=True,  color=WHITE,  align=TA_CENTER),
-        para("WHERE LEADERS ARE BORN",  7, color=MBLUE, align=TA_CENTER, italic=True),
+        para("POWER KNOWLEDGE WISDOM",  7, color=MBLUE, align=TA_CENTER, italic=True),
         Spacer(1, 2 * mm),
         para("ADMISSION FORM",         12, bold=True,  color=ACCENT, align=TA_CENTER),
     ]

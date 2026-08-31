@@ -680,7 +680,7 @@ const Reports = () => {
                   <p className="text-[10px] font-bold text-blue-300 uppercase tracking-widest">
                     {level === "nursery_kg"
                       ? "GLOBAL LEADERS"
-                      : "WHERE LEADERS ARE BORN"}
+                      : "POWER KNOWLEDGE WISDOM"}
                   </p>
                   <h2 className="text-xl font-bold leading-tight">
                     {report.school_name || "BETHEL STAR ACADEMY"}

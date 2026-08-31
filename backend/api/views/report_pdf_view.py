@@ -316,7 +316,7 @@ def generate_student_report_pdf(student_id, term, year):
     thresholds = get_thresholds(level)
     show_position = level != "nursery_kg"
     school_name = SCHOOL_NAMES.get(level, "BETHEL STAR ACADEMY")
-    school_motto = SCHOOL_MOTTOS.get(level, "WHERE LEADERS ARE BORN")
+    school_motto = SCHOOL_MOTTOS.get(level, "POWER KNOWLEDGE WISDOM")
     interp_rows = get_interp_rows(level)
 
     # ── Attendance — single aggregate ───────────────────────────────

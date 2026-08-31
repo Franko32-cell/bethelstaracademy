@@ -144,7 +144,7 @@ def build_header(term, year):
 
     school_block = [
         para("BETHEL STAR ACADEMY", 14, bold=True, color=WHITE, align=TA_CENTER),
-        para("WHERE LEADERS ARE BORN",  7, color=colors.HexColor("#93c5fd"), align=TA_CENTER),
+        para("POWER KNOWLEDGE WISDOM",  7, color=colors.HexColor("#93c5fd"), align=TA_CENTER),
         Spacer(1, 2*mm),
         para("FEE STATEMENT",          11, bold=True, color=GOLD, align=TA_CENTER),
         para(f"{term_str}  ·  {year_str}", 8, color=colors.HexColor("#e0f2fe"), align=TA_CENTER),

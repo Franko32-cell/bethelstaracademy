@@ -141,7 +141,7 @@ class PaymentReceiptPDFView(APIView):
 
         school_block = [
             para("BETHEL STAR ACADEMY", 12, bold=True, color=BLUE, align=TA_CENTER),
-            para("WHERE LEADERS ARE BORN",  7, color=LGRAY, align=TA_CENTER),
+            para("POWER KNOWLEDGE WISDOM",  7, color=LGRAY, align=TA_CENTER),
             Spacer(1, 1 * mm),
             para("PAYMENT RECEIPT",        10, bold=True, color=BLACK, align=TA_CENTER),
         ]

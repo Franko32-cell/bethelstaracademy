@@ -54,14 +54,14 @@ class AdmissionViewSet(ModelViewSet):
     def _generate_student_id(self):
         year     = timezone.now().year
         existing = User.objects.filter(
-            username__startswith=f"LSA-{year}-"
+            username__startswith=f"BSA-{year}-"
         ).values_list("username", flat=True)
         max_number = 0
         for username in existing:
             numbers = re.findall(r"\d+$", username)
             if numbers:
                 max_number = max(max_number, int(numbers[-1]))
-        return f"LSA-{year}-{str(max_number + 1).zfill(4)}"
+        return f"BSA-{year}-{str(max_number + 1).zfill(4)}"
 
     def _resolve_class(self, admission):
         if not admission.applied_class_id:

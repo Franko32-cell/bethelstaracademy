@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 const slides = [
-  { img: "/assets/hero.JPG", tag: "Excellence in Education" },
-  { img: "/assets/slide1.JPG", tag: "Nurturing Future Leaders" },
-  { img: "/assets/slide2.JPG", tag: "Where Leaders Are Born" },
+  { img: "/assets/excellence.jpeg", tag: "Excellence in Education" },
+  { img: "/assets/nurturingjpeg", tag: "Nurturing Future Leaders" },
+  { img: "/assets/leaders.jpeg", tag: "Where Leaders Are Born" },
 ];
 
 const Hero = () => {
