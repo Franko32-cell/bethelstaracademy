@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 
 const slides = [
   { img: "/assets/excellence.jpeg", tag: "Excellence in Education" },
-  { img: "/assets/nurturingjpeg", tag: "Nurturing Future Leaders" },
+  { img: "/assets/nurturing.jpeg", tag: "Nurturing Future Leaders" },
   { img: "/assets/leaders.jpeg", tag: "Where Leaders Are Born" },
 ];
 
