@@ -363,25 +363,45 @@ class FeeViewSet(ModelViewSet):
             .order_by("created_at")
         )
 
-        data = [
-            {
+        data = []
+        for t in qs:
+            fee          = t.fee
+            total_amount = fee.total_amount
+
+            # Balance as of THIS payment, not the fee's current (possibly
+            # later) balance — sum everything paid on this fee up to and
+            # including this transaction's timestamp. This keeps a reprinted
+            # receipt from a previous day accurate even if more payments
+            # have been recorded on the fee since.
+            paid_to_date = (
+                fee.transactions
+                .filter(created_at__lte=t.created_at)
+                .aggregate(total=Sum("amount"))["total"]
+                or Decimal("0")
+            )
+            balance_after   = total_amount - paid_to_date
+            is_full_payment = balance_after <= 0
+
+            data.append({
                 "id":                t.id,
-                "student_name":      t.fee.student.full_name,
-                "admission_number":  t.fee.student.admission_number,
-                "school_class_name": str(t.fee.student.school_class) if t.fee.student.school_class else None,
+                "student_name":      fee.student.full_name,
+                "admission_number":  fee.student.admission_number,
+                "school_class_name": str(fee.student.school_class) if fee.student.school_class else None,
                 "amount":            str(t.amount),
                 "note":              t.note,
                 "recorded_by": (
                     t.recorded_by.get_full_name() or t.recorded_by.username
                     if t.recorded_by else "System"
                 ),
-                "term":              t.fee.term,
+                "term":              fee.term,
                 "year":              t.created_at.year,
                 "date":              t.created_at.strftime("%d %b %Y"),
                 "time":              t.created_at.strftime("%I:%M %p"),
-            }
-            for t in qs
-        ]
+                "total_amount":      str(total_amount),
+                "paid_to_date":      str(paid_to_date),
+                "balance":           str(balance_after),
+                "is_full_payment":   is_full_payment,
+            })
 
         return Response(data)
 

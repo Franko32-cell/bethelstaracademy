@@ -113,8 +113,10 @@ const FeeFormFields = ({ values, onChange, showArrears = false }) => {
 // ── Printable receipt helpers ───────────────────────────────────────────
 // Builds one receipt "card" (used twice per sheet — office copy + parent copy).
 const receiptCardHTML = (txn, copyLabel) => {
-  const amount = Number(txn.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 });
-  const term   = TERMS.find((t) => t.value === txn.term)?.label || txn.term || "";
+  const amount  = Number(txn.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 });
+  const balance = Number(txn.balance ?? 0);
+  const isFull  = txn.is_full_payment !== undefined ? txn.is_full_payment : balance <= 0;
+  const term    = TERMS.find((t) => t.value === txn.term)?.label || txn.term || "";
   return `
     <div class="receipt-card">
       <div class="copy-tag">${copyLabel}</div>
@@ -134,8 +136,16 @@ const receiptCardHTML = (txn, copyLabel) => {
       ${txn.school_class_name ? `<div class="r-row"><span>Class</span><b>${txn.school_class_name}</b></div>` : ""}
       ${(term || txn.year) ? `<div class="r-row"><span>Term / Year</span><b>${term}${txn.year ? " " + txn.year : ""}</b></div>` : ""}
       ${txn.note ? `<div class="r-row"><span>Note</span><b>${txn.note}</b></div>` : ""}
+      ${txn.total_amount ? `<div class="r-row"><span>Total Fee Due</span><b>GHS ${Number(txn.total_amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</b></div>` : ""}
       <div class="r-amount"><span>Amount Paid</span><b>GHS ${amount}</b></div>
+      <div class="r-balance ${isFull ? "r-balance-clear" : "r-balance-due"}">
+        <span>${isFull ? "Balance" : "Balance Remaining"}</span>
+        <b>GHS ${Math.max(balance, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</b>
+      </div>
       <div class="r-row"><span>Recorded By</span><b>${txn.recorded_by || ""}</b></div>
+      <div class="r-stamp ${isFull ? "r-stamp-full" : "r-stamp-partial"}">
+        ${isFull ? "✓ FULL PAYMENT" : "◑ PARTIAL PAYMENT"}
+      </div>
       <div class="r-sign">
         <div class="r-sign-line">Cashier's Signature</div>
         <div class="r-sign-line">Parent/Guardian Signature</div>
@@ -174,9 +184,19 @@ const buildReceiptsDocument = (txns) => {
       .r-title { font-size: 12px; font-weight: 700; letter-spacing: 0.15em; margin-bottom: 10px; color: #111827; text-align: center; }
       .r-row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; border-bottom: 1px dotted #e2e8f0; }
       .r-row span { color: #64748b; }
-      .r-amount { display: flex; justify-content: space-between; align-items: center; font-size: 15px; margin: 10px 0; padding: 8px 10px; background: #eff6ff; border-radius: 6px; }
+      .r-amount { display: flex; justify-content: space-between; align-items: center; font-size: 15px; margin: 10px 0 0 0; padding: 8px 10px; background: #eff6ff; border-radius: 6px; }
       .r-amount span { color: #1d4ed8; font-weight: 600; font-size: 12px; }
       .r-amount b { color: #1d4ed8; font-size: 16px; }
+      .r-balance { display: flex; justify-content: space-between; align-items: center; font-size: 14px; margin: 6px 0 10px 0; padding: 7px 10px; border-radius: 6px; }
+      .r-balance span { font-weight: 600; font-size: 11px; }
+      .r-balance b { font-size: 14px; }
+      .r-balance-clear { background: #f0fdf4; }
+      .r-balance-clear span, .r-balance-clear b { color: #16a34a; }
+      .r-balance-due { background: #fef2f2; }
+      .r-balance-due span, .r-balance-due b { color: #dc2626; }
+      .r-stamp { text-align: center; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; border-radius: 6px; padding: 6px; margin-top: 10px; }
+      .r-stamp-full { color: #16a34a; background: #f0fdf4; border: 1.5px solid #16a34a; }
+      .r-stamp-partial { color: #d97706; background: #fffbeb; border: 1.5px solid #d97706; }
       .r-sign { display: flex; justify-content: space-between; margin-top: 22px; }
       .r-sign-line { font-size: 10px; color: #94a3b8; border-top: 1px solid #94a3b8; padding-top: 4px; width: 46%; text-align: center; }
       .cut-line { text-align: center; font-size: 10px; color: #94a3b8; margin: 10px 0; letter-spacing: -0.5px; }
