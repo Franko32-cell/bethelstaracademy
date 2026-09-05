@@ -16,11 +16,19 @@ const STATUS_FILTERS = [
 const TABS = ["Fee Records", "Assign to Class", "Assign to Student", "Receipts"];
 const emptyAssign = { amount: "", book_user_fee: "", workbook_fee: "", arrears: "" };
 
-// Edit these to match your school — used on the printed receipt.
+// Used on the printed receipt — matches the PDF receipt's branding.
+// logoUrl must be a publicly reachable, absolute URL (the print window is a
+// separate document with no auth headers, so it can't hit an authenticated
+// API route). Since your logo already lives at /static/images/logo.jpeg on
+// the backend and is served by Whitenoise (no auth required), point this at
+// that same file on your backend's domain, e.g.:
+//   "https://your-backend.onrender.com/static/images/logo.jpeg"
 const SCHOOL_INFO = {
-  name: "YOUR SCHOOL NAME",
+  name: "BETHEL STAR ACADEMY",
+  tagline: "POWER KNOWLEDGE WISDOM",
   address: "P.O. Box 000, Accra, Ghana",
   phone: "0000 000 000",
+  logoUrl: "",
 };
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -111,10 +119,14 @@ const receiptCardHTML = (txn, copyLabel) => {
     <div class="receipt-card">
       <div class="copy-tag">${copyLabel}</div>
       <div class="r-header">
-        <div class="r-school">${SCHOOL_INFO.name}</div>
-        <div class="r-sub">${SCHOOL_INFO.address}${SCHOOL_INFO.phone ? " · " + SCHOOL_INFO.phone : ""}</div>
-        <div class="r-title">PAYMENT RECEIPT</div>
+        ${SCHOOL_INFO.logoUrl ? `<img class="r-logo" src="${SCHOOL_INFO.logoUrl}" alt="" />` : ""}
+        <div class="r-header-text">
+          <div class="r-school">${SCHOOL_INFO.name}</div>
+          ${SCHOOL_INFO.tagline ? `<div class="r-tagline">${SCHOOL_INFO.tagline}</div>` : ""}
+          <div class="r-sub">${SCHOOL_INFO.address}${SCHOOL_INFO.phone ? " · " + SCHOOL_INFO.phone : ""}</div>
+        </div>
       </div>
+      <div class="r-title">PAYMENT RECEIPT</div>
       <div class="r-row"><span>Receipt No.</span><b>#${txn.id}</b></div>
       <div class="r-row"><span>Date</span><b>${txn.date || ""}${txn.time ? "  " + txn.time : ""}</b></div>
       <div class="r-row"><span>Student</span><b>${txn.student_name || ""}</b></div>
@@ -153,10 +165,13 @@ const buildReceiptsDocument = (txns) => {
       .sheet:last-child { page-break-after: auto; }
       .receipt-card { border: 1.5px dashed #94a3b8; border-radius: 8px; padding: 16px 20px; position: relative; }
       .copy-tag { position: absolute; top: 10px; right: 16px; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; color: #64748b; background: #f1f5f9; padding: 2px 8px; border-radius: 999px; }
-      .r-header { text-align: center; margin-bottom: 10px; border-bottom: 2px solid #1e293b; padding-bottom: 8px; }
-      .r-school { font-size: 16px; font-weight: 800; letter-spacing: 0.02em; }
-      .r-sub { font-size: 10px; color: #64748b; margin-top: 2px; }
-      .r-title { font-size: 12px; font-weight: 700; letter-spacing: 0.15em; margin-top: 6px; color: #2563eb; }
+      .r-header { display: flex; align-items: center; justify-content: center; gap: 10px; background: #dbeafe; border: 1px solid #1e40af; border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; }
+      .r-logo { width: 34px; height: 34px; object-fit: contain; border-radius: 4px; flex-shrink: 0; }
+      .r-header-text { text-align: center; flex: 1; }
+      .r-school { font-size: 15px; font-weight: 800; letter-spacing: 0.02em; color: #1e40af; }
+      .r-tagline { font-size: 8px; color: #9ca3af; letter-spacing: 0.08em; margin-top: 1px; }
+      .r-sub { font-size: 9px; color: #64748b; margin-top: 2px; }
+      .r-title { font-size: 12px; font-weight: 700; letter-spacing: 0.15em; margin-bottom: 10px; color: #111827; text-align: center; }
       .r-row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; border-bottom: 1px dotted #e2e8f0; }
       .r-row span { color: #64748b; }
       .r-amount { display: flex; justify-content: space-between; align-items: center; font-size: 15px; margin: 10px 0; padding: 8px 10px; background: #eff6ff; border-radius: 6px; }
