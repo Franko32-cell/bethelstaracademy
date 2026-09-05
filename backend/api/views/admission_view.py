@@ -3,6 +3,7 @@ import logging
 
 from django.utils import timezone
 from django.contrib.auth import get_user_model
+from django.db import transaction, IntegrityError
 
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
@@ -108,68 +109,101 @@ class AdmissionViewSet(ModelViewSet):
         if admission.status != "approved":
             return
 
-        if Student.objects.filter(user__email=admission.email).exists():
-            logger.info(f"Student already exists for {admission.email}, skipping.")
-            return
+        # RACE FIX: two near-simultaneous approve requests for the SAME
+        # admission (e.g. a double-click, or the frontend firing the PATCH
+        # twice) could both pass the old `Student.objects.filter(...).exists()`
+        # check before either had committed a new Student/User, then both
+        # call `_generate_student_id()` and compute the identical next ID,
+        # causing the second insert to crash with a UniqueViolation on
+        # accounts_user_username_key.
+        #
+        # select_for_update() locks this Admission row so a duplicate
+        # request blocks here until the first one finishes and commits,
+        # instead of racing past the exists() check below. Combined with
+        # the admission_number short-circuit and the exists() check (now
+        # both re-evaluated *after* acquiring the lock), a genuine duplicate
+        # request becomes a safe no-op rather than a 500.
+        with transaction.atomic():
+            admission = Admission.objects.select_for_update().get(pk=admission.pk)
 
-        try:
-            student_id   = self._generate_student_id()
-            school_class = self._resolve_class(admission)
+            if admission.admission_number:
+                logger.info(
+                    f"Admission {admission.id} already provisioned as "
+                    f"{admission.admission_number}, skipping duplicate approval."
+                )
+                return
 
-            first_name = admission.first_name or admission.student_name.split(" ", 1)[0]
-            last_name  = (
-                admission.last_name
-                or (admission.student_name.split(" ", 1)[1]
-                    if " " in admission.student_name else "")
-            )
+            if Student.objects.filter(user__email=admission.email).exists():
+                logger.info(f"Student already exists for {admission.email}, skipping.")
+                return
 
-            user = User.objects.create_user(
-                username=student_id,
-                email=admission.email,
-                password="student123",
-                first_name=first_name,
-                last_name=last_name,
-                role="student",
-            )
+            try:
+                student_id   = self._generate_student_id()
+                school_class = self._resolve_class(admission)
 
-            # Get raw public_id string from DB
-            photo_value = self._copy_photo(admission)
-            logger.info(f"Photo value to assign to student: {photo_value}")
+                first_name = admission.first_name or admission.student_name.split(" ", 1)[0]
+                last_name  = (
+                    admission.last_name
+                    or (admission.student_name.split(" ", 1)[1]
+                        if " " in admission.student_name else "")
+                )
 
-            student = Student.objects.create(
-                user=user,
-                admission_number=student_id,
-                student_name=f"{first_name} {last_name}".strip(),
-                parent_name=admission.parent_name,
-                date_of_birth=admission.date_of_birth,
-                address=admission.address,
-                school_class=school_class,
-                photo=photo_value,
-            )
+                user = User.objects.create_user(
+                    username=student_id,
+                    email=admission.email,
+                    password="student123",
+                    first_name=first_name,
+                    last_name=last_name,
+                    role="student",
+                )
 
-            admission.admission_number = student_id
-            admission.save(update_fields=["admission_number"])
+                # Get raw public_id string from DB
+                photo_value = self._copy_photo(admission)
+                logger.info(f"Photo value to assign to student: {photo_value}")
 
-            logger.info(f"Student created: {student.student_name} id={student_id} photo={photo_value}")
+                student = Student.objects.create(
+                    user=user,
+                    admission_number=student_id,
+                    student_name=f"{first_name} {last_name}".strip(),
+                    parent_name=admission.parent_name,
+                    date_of_birth=admission.date_of_birth,
+                    address=admission.address,
+                    school_class=school_class,
+                    photo=photo_value,
+                )
 
-            log_action(
-                request=self.request,
-                action=AuditLog.Action.CREATE,
-                module=AuditLog.Module.ADMISSIONS,
-                resource_type="Student",
-                resource_id=student.id,
-                resource_repr=f"Student created from admission: {student.student_name} ({student_id})",
-            )
+                admission.admission_number = student_id
+                admission.save(update_fields=["admission_number"])
 
-        except Exception as exc:
-            logger.error(f"Student creation failed: {exc}")
-            log_action(
-                request=self.request,
-                action=AuditLog.Action.CREATE,
-                module=AuditLog.Module.ADMISSIONS,
-                status=AuditLog.Status.FAILED,
-                resource_type="Student",
-                resource_repr=f"Student creation failed for admission: {admission.student_name}",
-                description=str(exc),
-            )
-            raise
+                logger.info(f"Student created: {student.student_name} id={student_id} photo={photo_value}")
+
+                log_action(
+                    request=self.request,
+                    action=AuditLog.Action.CREATE,
+                    module=AuditLog.Module.ADMISSIONS,
+                    resource_type="Student",
+                    resource_id=student.id,
+                    resource_repr=f"Student created from admission: {student.student_name} ({student_id})",
+                )
+
+            except IntegrityError as exc:
+                # Belt-and-suspenders: if two DIFFERENT admissions somehow
+                # generated the same student_id at the exact same instant
+                # (a much rarer race than the duplicate-same-admission case
+                # the lock above handles), this turns a 500 into a quiet
+                # no-op instead of crashing the request.
+                logger.warning(f"Student creation race detected for admission {admission.id}: {exc}")
+                return
+
+            except Exception as exc:
+                logger.error(f"Student creation failed: {exc}")
+                log_action(
+                    request=self.request,
+                    action=AuditLog.Action.CREATE,
+                    module=AuditLog.Module.ADMISSIONS,
+                    status=AuditLog.Status.FAILED,
+                    resource_type="Student",
+                    resource_repr=f"Student creation failed for admission: {admission.student_name}",
+                    description=str(exc),
+                )
+                raise
