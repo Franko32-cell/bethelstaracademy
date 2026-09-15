@@ -116,11 +116,9 @@ const receiptCardHTML = (txn, copyLabel) => {
       <div class="copy-tag">${copyLabel}</div>
       <div class="r-header">
         ${SCHOOL_INFO.logoUrl ? `<img class="r-logo" src="${SCHOOL_INFO.logoUrl}" alt="" />` : ""}
-        <div class="r-header-text">
-          <div class="r-school">${SCHOOL_INFO.name}</div>
-          ${SCHOOL_INFO.tagline ? `<div class="r-tagline">${SCHOOL_INFO.tagline}</div>` : ""}
-          <div class="r-sub">${SCHOOL_INFO.address}${SCHOOL_INFO.phone ? " · " + SCHOOL_INFO.phone : ""}</div>
-        </div>
+        <div class="r-school">${SCHOOL_INFO.name}</div>
+        ${SCHOOL_INFO.tagline ? `<div class="r-tagline">${SCHOOL_INFO.tagline}</div>` : ""}
+        <div class="r-sub">${SCHOOL_INFO.address}${SCHOOL_INFO.phone ? " · " + SCHOOL_INFO.phone : ""}</div>
       </div>
       <div class="r-title">PAYMENT RECEIPT</div>
       <div class="r-row"><span>Receipt No.</span><b>RCP-${String(txn.id).padStart(6, "0")}</b></div>
@@ -164,31 +162,45 @@ const buildReceiptsDocument = (txns) => {
     <style>
       @page { size: A4; margin: 10mm; }
       * { box-sizing: border-box; }
-      body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; margin: 0; }
+      body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .sheet { width: 100%; min-height: calc(297mm - 20mm); display: flex; flex-direction: column; justify-content: space-between; page-break-after: always; }
       .sheet:last-child { page-break-after: auto; }
       .receipt-card { border: 1.5px dashed #94a3b8; border-radius: 8px; padding: 16px 20px; position: relative; }
       .copy-tag { position: absolute; top: 10px; right: 16px; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; color: #64748b; background: #f1f5f9; padding: 2px 8px; border-radius: 999px; }
-      .r-header { display: flex; align-items: center; justify-content: center; gap: 14px; background: #dbeafe; border: 1px solid #1e40af; border-radius: 6px; padding: 12px 14px; margin-bottom: 12px; }
-      .r-logo { width: 58px; height: 58px; object-fit: contain; border-radius: 6px; flex-shrink: 0; }
-      .r-header-text { text-align: center; flex: 1; }
-      .r-school { font-size: 19px; font-weight: 800; letter-spacing: 0.04em; line-height: 1.15; color: #1e40af; }
-      .r-tagline { font-size: 9px; color: #64748b; letter-spacing: 0.12em; margin-top: 4px; }
-      .r-sub { font-size: 10px; color: #475569; margin-top: 4px; }
+
+      /* Centred header — logo stacked above the school name */
+      .r-header {
+        display: flex; flex-direction: column; align-items: center; text-align: center;
+        background: #dbeafe; border: 1px solid #1e40af; border-radius: 8px;
+        padding: 18px 16px 14px; margin-bottom: 14px;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+      }
+      .r-logo {
+        width: 96px; height: 96px; object-fit: contain;
+        background: #fff; border: 2px solid #1e40af; border-radius: 50%;
+        padding: 5px; margin-bottom: 10px;
+      }
+      .r-school { font-size: 23px; font-weight: 800; letter-spacing: 0.05em; line-height: 1.15; color: #1e40af; }
+      .r-tagline {
+        font-size: 9px; color: #1e40af; letter-spacing: 0.22em; margin-top: 6px;
+        padding-top: 6px; border-top: 1px solid rgba(30,64,175,0.25); display: inline-block;
+      }
+      .r-sub { font-size: 10.5px; color: #475569; margin-top: 5px; }
+
       .r-title { font-size: 13px; font-weight: 700; letter-spacing: 0.18em; margin: 0 0 10px; padding: 7px 0 6px; border-top: 1px solid #bfdbfe; border-bottom: 1px solid #bfdbfe; color: #111827; text-align: center; }
       .r-row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; border-bottom: 1px dotted #e2e8f0; }
       .r-row span { color: #64748b; }
-      .r-amount { display: flex; justify-content: space-between; align-items: center; font-size: 15px; margin: 10px 0 0 0; padding: 8px 10px; background: #eff6ff; border-radius: 6px; }
+      .r-amount { display: flex; justify-content: space-between; align-items: center; font-size: 15px; margin: 10px 0 0 0; padding: 8px 10px; background: #eff6ff; border-radius: 6px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .r-amount span { color: #1d4ed8; font-weight: 600; font-size: 12px; }
       .r-amount b { color: #1d4ed8; font-size: 16px; }
-      .r-balance { display: flex; justify-content: space-between; align-items: center; font-size: 14px; margin: 6px 0 10px 0; padding: 7px 10px; border-radius: 6px; }
+      .r-balance { display: flex; justify-content: space-between; align-items: center; font-size: 14px; margin: 6px 0 10px 0; padding: 7px 10px; border-radius: 6px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .r-balance span { font-weight: 600; font-size: 11px; }
       .r-balance b { font-size: 14px; }
       .r-balance-clear { background: #f0fdf4; }
       .r-balance-clear span, .r-balance-clear b { color: #16a34a; }
       .r-balance-due { background: #fef2f2; }
       .r-balance-due span, .r-balance-due b { color: #dc2626; }
-      .r-stamp { text-align: center; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; border-radius: 6px; padding: 6px; margin-top: 10px; }
+      .r-stamp { text-align: center; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; border-radius: 6px; padding: 6px; margin-top: 10px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .r-stamp-full { color: #16a34a; background: #f0fdf4; border: 1.5px solid #16a34a; }
       .r-stamp-partial { color: #d97706; background: #fffbeb; border: 1.5px solid #d97706; }
       .r-sign { display: flex; justify-content: flex-end; margin-top: 22px; }
@@ -312,23 +324,23 @@ const Fees = () => {
   };
 
   const downloadFile = async (url, fallbackFilename) => {
-  const r = await API.get(url, { responseType: "blob" });
-  
-  // Extract filename from Content-Disposition header
-  const disposition = r.headers["content-disposition"];
-  let filename = fallbackFilename;
-  if (disposition) {
-    const match = disposition.match(/filename\*=UTF-8''(.+)|filename="?([^"]+)"?/);
-    if (match) filename = decodeURIComponent(match[1] || match[2]);
-  }
+    const r = await API.get(url, { responseType: "blob" });
 
-  const link = document.createElement("a");
-  link.href = window.URL.createObjectURL(new Blob([r.data]));
-  link.setAttribute("download", filename);
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-};
+    // Extract filename from Content-Disposition header
+    const disposition = r.headers["content-disposition"];
+    let filename = fallbackFilename;
+    if (disposition) {
+      const match = disposition.match(/filename\*=UTF-8''(.+)|filename="?([^"]+)"?/);
+      if (match) filename = decodeURIComponent(match[1] || match[2]);
+    }
+
+    const link = document.createElement("a");
+    link.href = window.URL.createObjectURL(new Blob([r.data]));
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
 
   const downloadBill = async (url, filename) => {
     try { await downloadFile(url, filename); }
