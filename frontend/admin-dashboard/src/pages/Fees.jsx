@@ -169,13 +169,13 @@ const buildReceiptsDocument = (txns) => {
       .sheet:last-child { page-break-after: auto; }
       .receipt-card { border: 1.5px dashed #94a3b8; border-radius: 8px; padding: 16px 20px; position: relative; }
       .copy-tag { position: absolute; top: 10px; right: 16px; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; color: #64748b; background: #f1f5f9; padding: 2px 8px; border-radius: 999px; }
-      .r-header { display: flex; align-items: center; justify-content: center; gap: 10px; background: #dbeafe; border: 1px solid #1e40af; border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; }
-      .r-logo { width: 34px; height: 34px; object-fit: contain; border-radius: 4px; flex-shrink: 0; }
+      .r-header { display: flex; align-items: center; justify-content: center; gap: 14px; background: #dbeafe; border: 1px solid #1e40af; border-radius: 6px; padding: 12px 14px; margin-bottom: 12px; }
+      .r-logo { width: 58px; height: 58px; object-fit: contain; border-radius: 6px; flex-shrink: 0; }
       .r-header-text { text-align: center; flex: 1; }
-      .r-school { font-size: 15px; font-weight: 800; letter-spacing: 0.02em; color: #1e40af; }
-      .r-tagline { font-size: 8px; color: #9ca3af; letter-spacing: 0.08em; margin-top: 1px; }
-      .r-sub { font-size: 9px; color: #64748b; margin-top: 2px; }
-      .r-title { font-size: 12px; font-weight: 700; letter-spacing: 0.15em; margin-bottom: 10px; color: #111827; text-align: center; }
+      .r-school { font-size: 19px; font-weight: 800; letter-spacing: 0.04em; line-height: 1.15; color: #1e40af; }
+      .r-tagline { font-size: 9px; color: #64748b; letter-spacing: 0.12em; margin-top: 4px; }
+      .r-sub { font-size: 10px; color: #475569; margin-top: 4px; }
+      .r-title { font-size: 13px; font-weight: 700; letter-spacing: 0.18em; margin: 0 0 10px; padding: 7px 0 6px; border-top: 1px solid #bfdbfe; border-bottom: 1px solid #bfdbfe; color: #111827; text-align: center; }
       .r-row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; border-bottom: 1px dotted #e2e8f0; }
       .r-row span { color: #64748b; }
       .r-amount { display: flex; justify-content: space-between; align-items: center; font-size: 15px; margin: 10px 0 0 0; padding: 8px 10px; background: #eff6ff; border-radius: 6px; }
