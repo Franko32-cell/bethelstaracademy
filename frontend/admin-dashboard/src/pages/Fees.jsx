@@ -16,19 +16,13 @@ const STATUS_FILTERS = [
 const TABS = ["Fee Records", "Assign to Class", "Assign to Student", "Receipts"];
 const emptyAssign = { amount: "", book_user_fee: "", workbook_fee: "", arrears: "" };
 
-// Used on the printed receipt — matches the PDF receipt's branding.
-// logoUrl must be a publicly reachable, absolute URL (the print window is a
-// separate document with no auth headers, so it can't hit an authenticated
-// API route). Since your logo already lives at /static/images/logo.jpeg on
-// the backend and is served by Whitenoise (no auth required), point this at
-// that same file on your backend's domain, e.g.:
-//   "https://your-backend.onrender.com/static/images/logo.jpeg"
+// Used on the printed receipt — keep these values aligned with the PDF view.
+const API_ORIGIN = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 const SCHOOL_INFO = {
   name: "BETHEL STAR ACADEMY",
   tagline: "POWER KNOWLEDGE WISDOM",
-  address: "P.O. Box 000, Accra, Ghana",
-  phone: "0000 000 000",
-  logoUrl: "",
+  address: "P.O.Box 105, Darkuman",
+  logoUrl: API_ORIGIN ? `${API_ORIGIN}/static/images/logo.jpeg` : "/static/images/logo.jpeg",
 };
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -129,7 +123,7 @@ const receiptCardHTML = (txn, copyLabel) => {
         </div>
       </div>
       <div class="r-title">PAYMENT RECEIPT</div>
-      <div class="r-row"><span>Receipt No.</span><b>#${txn.id}</b></div>
+      <div class="r-row"><span>Receipt No.</span><b>RCP-${String(txn.id).padStart(6, "0")}</b></div>
       <div class="r-row"><span>Date</span><b>${txn.date || ""}${txn.time ? "  " + txn.time : ""}</b></div>
       <div class="r-row"><span>Student</span><b>${txn.student_name || ""}</b></div>
       <div class="r-row"><span>Admission No.</span><b>${txn.admission_number || ""}</b></div>
@@ -147,9 +141,9 @@ const receiptCardHTML = (txn, copyLabel) => {
         ${isFull ? "✓ FULL PAYMENT" : "◑ PARTIAL PAYMENT"}
       </div>
       <div class="r-sign">
-        <div class="r-sign-line">Cashier's Signature</div>
-        <div class="r-sign-line">Parent/Guardian Signature</div>
+        <div class="r-sign-line">Headmaster's Signature</div>
       </div>
+      <div class="r-footer">This is an official receipt. Please retain for your records.<br />Thank you for your payment. — Bethel Star Academy</div>
     </div>`;
 };
 
@@ -197,8 +191,9 @@ const buildReceiptsDocument = (txns) => {
       .r-stamp { text-align: center; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; border-radius: 6px; padding: 6px; margin-top: 10px; }
       .r-stamp-full { color: #16a34a; background: #f0fdf4; border: 1.5px solid #16a34a; }
       .r-stamp-partial { color: #d97706; background: #fffbeb; border: 1.5px solid #d97706; }
-      .r-sign { display: flex; justify-content: space-between; margin-top: 22px; }
-      .r-sign-line { font-size: 10px; color: #94a3b8; border-top: 1px solid #94a3b8; padding-top: 4px; width: 46%; text-align: center; }
+      .r-sign { display: flex; justify-content: flex-end; margin-top: 22px; }
+      .r-sign-line { font-size: 10px; color: #374151; border-top: 1px solid #94a3b8; padding-top: 4px; width: 46%; text-align: center; }
+      .r-footer { border-top: 1px solid #e5e7eb; color: #9ca3af; font-size: 9px; line-height: 1.5; margin-top: 18px; padding-top: 6px; text-align: center; }
       .cut-line { text-align: center; font-size: 10px; color: #94a3b8; margin: 10px 0; letter-spacing: -0.5px; }
       @media print { .sheet { page-break-after: always; } }
     </style>
