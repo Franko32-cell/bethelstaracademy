@@ -140,6 +140,7 @@ class PaymentReceiptPDFView(APIView):
         logo_cell = logo if logo else para("", 9)
 
         school_block = [
+            para("BETHEL STAR ACADEMY", 15, bold=True, color=BLUE, align=TA_CENTER),
             para("POWER KNOWLEDGE WISDOM",  7, color=LGRAY, align=TA_CENTER),
             para("P.O.Box 105, Darkuman",   7, color=LGRAY, align=TA_CENTER),
             para("PAYMENT RECEIPT",        10, bold=True, color=BLACK, align=TA_CENTER),
