@@ -141,7 +141,7 @@ class PaymentReceiptPDFView(APIView):
 
         school_block = [
             para("BETHEL STAR ACADEMY", 12, bold=True, color=BLUE, align=TA_CENTER),
-            para("POWER KNOWLEDGE WISDOM",  7, color=LGRAY, align=TA_CENTER),
+            para("WHERE LEADERS ARE BORN",  7, color=LGRAY, align=TA_CENTER),
             Spacer(1, 1 * mm),
             para("PAYMENT RECEIPT",        10, bold=True, color=BLACK, align=TA_CENTER),
         ]
@@ -309,6 +309,30 @@ class PaymentReceiptPDFView(APIView):
             ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
         ]))
         elements.append(stamp)
+        elements.append(Spacer(1, 8 * mm))
+
+        # ── Headmaster signature ─────────────────────────────────────────
+        # Single signature line reserved for the headmaster only — no other
+        # staff signature slot is provided on this receipt.
+        signature = Table(
+            [[para("", 9), para("_________________________", 9, align=TA_CENTER)]],
+            colWidths=[W - 65 * mm, 65 * mm],
+        )
+        signature.setStyle(TableStyle([
+            ("TOPPADDING",    (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        elements.append(signature)
+
+        signature_label = Table(
+            [[para("", 9), para("Headmaster's Signature", 8, bold=True, color=DGRAY, align=TA_CENTER)]],
+            colWidths=[W - 65 * mm, 65 * mm],
+        )
+        signature_label.setStyle(TableStyle([
+            ("TOPPADDING",    (0, 0), (-1, -1), 1),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        elements.append(signature_label)
         elements.append(Spacer(1, 5 * mm))
 
         # ── Footer ────────────────────────────────────────────────────────
