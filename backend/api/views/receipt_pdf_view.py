@@ -140,12 +140,10 @@ class PaymentReceiptPDFView(APIView):
         logo_cell = logo if logo else para("", 9)
 
         school_block = [
-            para("BETHEL STAR ACADEMY", 12, bold=True, color=BLUE, align=TA_CENTER),
-            para("WHERE LEADERS ARE BORN",  7, color=LGRAY, align=TA_CENTER),
-            Spacer(1, 1 * mm),
+            para("POWER KNOWLEDGE WISDOM",  7, color=LGRAY, align=TA_CENTER),
+            para("P.O.Box 105, Darkuman",   7, color=LGRAY, align=TA_CENTER),
             para("PAYMENT RECEIPT",        10, bold=True, color=BLACK, align=TA_CENTER),
         ]
-
         header = Table([[logo_cell, school_block, para("", 9)]], colWidths=[18 * mm, W - 36 * mm, 18 * mm])
         header.setStyle(TableStyle([
             ("BACKGROUND",    (0, 0), (-1, -1), LBLUE),
