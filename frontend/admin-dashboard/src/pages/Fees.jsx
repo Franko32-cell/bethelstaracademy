@@ -160,53 +160,60 @@ const buildReceiptsDocument = (txns) => {
     <meta charset="utf-8" />
     <title>Receipts</title>
     <style>
-      @page { size: A4; margin: 10mm; }
+      @page { size: A4; margin: 8mm 10mm; }
       * { box-sizing: border-box; }
+      html, body { height: 100%; }
       body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .sheet { width: 100%; min-height: calc(297mm - 20mm); display: flex; flex-direction: column; justify-content: space-between; page-break-after: always; }
+
+      /* One A4 page per transaction: two copies stacked with room to spare. */
+      .sheet {
+        width: 100%; height: calc(297mm - 16mm);
+        display: flex; flex-direction: column; justify-content: center; gap: 6mm;
+        page-break-after: always; overflow: hidden;
+      }
       .sheet:last-child { page-break-after: auto; }
-      .receipt-card { border: 1.5px dashed #94a3b8; border-radius: 8px; padding: 16px 20px; position: relative; }
-      .copy-tag { position: absolute; top: 10px; right: 16px; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; color: #64748b; background: #f1f5f9; padding: 2px 8px; border-radius: 999px; }
+      .receipt-card { border: 1.5px dashed #94a3b8; border-radius: 8px; padding: 10px 14px; position: relative; }
+      .copy-tag { position: absolute; top: 7px; right: 12px; font-size: 9px; font-weight: 700; letter-spacing: 0.05em; color: #64748b; background: #f1f5f9; padding: 2px 7px; border-radius: 999px; }
 
       /* Centred header — logo stacked above the school name */
       .r-header {
         display: flex; flex-direction: column; align-items: center; text-align: center;
         background: #dbeafe; border: 1px solid #1e40af; border-radius: 8px;
-        padding: 18px 16px 14px; margin-bottom: 14px;
+        padding: 10px 12px 9px; margin-bottom: 8px;
         -webkit-print-color-adjust: exact; print-color-adjust: exact;
       }
       .r-logo {
-        width: 96px; height: 96px; object-fit: contain;
+        width: 56px; height: 56px; object-fit: contain;
         background: #fff; border: 2px solid #1e40af; border-radius: 50%;
-        padding: 5px; margin-bottom: 10px;
+        padding: 4px; margin-bottom: 6px;
       }
-      .r-school { font-size: 23px; font-weight: 800; letter-spacing: 0.05em; line-height: 1.15; color: #1e40af; }
+      .r-school { font-size: 16px; font-weight: 800; letter-spacing: 0.04em; line-height: 1.15; color: #1e40af; }
       .r-tagline {
-        font-size: 9px; color: #1e40af; letter-spacing: 0.22em; margin-top: 6px;
-        padding-top: 6px; border-top: 1px solid rgba(30,64,175,0.25); display: inline-block;
+        font-size: 7.5px; color: #1e40af; letter-spacing: 0.18em; margin-top: 4px;
+        padding-top: 4px; border-top: 1px solid rgba(30,64,175,0.25); display: inline-block;
       }
-      .r-sub { font-size: 10.5px; color: #475569; margin-top: 5px; }
+      .r-sub { font-size: 9px; color: #475569; margin-top: 3px; }
 
-      .r-title { font-size: 13px; font-weight: 700; letter-spacing: 0.18em; margin: 0 0 10px; padding: 7px 0 6px; border-top: 1px solid #bfdbfe; border-bottom: 1px solid #bfdbfe; color: #111827; text-align: center; }
-      .r-row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; border-bottom: 1px dotted #e2e8f0; }
+      .r-title { font-size: 11px; font-weight: 700; letter-spacing: 0.16em; margin: 0 0 6px; padding: 5px 0 4px; border-top: 1px solid #bfdbfe; border-bottom: 1px solid #bfdbfe; color: #111827; text-align: center; }
+      .r-row { display: flex; justify-content: space-between; font-size: 10.5px; padding: 2px 0; border-bottom: 1px dotted #e2e8f0; }
       .r-row span { color: #64748b; }
-      .r-amount { display: flex; justify-content: space-between; align-items: center; font-size: 15px; margin: 10px 0 0 0; padding: 8px 10px; background: #eff6ff; border-radius: 6px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .r-amount span { color: #1d4ed8; font-weight: 600; font-size: 12px; }
-      .r-amount b { color: #1d4ed8; font-size: 16px; }
-      .r-balance { display: flex; justify-content: space-between; align-items: center; font-size: 14px; margin: 6px 0 10px 0; padding: 7px 10px; border-radius: 6px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .r-balance span { font-weight: 600; font-size: 11px; }
-      .r-balance b { font-size: 14px; }
+      .r-amount { display: flex; justify-content: space-between; align-items: center; font-size: 13px; margin: 6px 0 0 0; padding: 6px 9px; background: #eff6ff; border-radius: 6px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .r-amount span { color: #1d4ed8; font-weight: 600; font-size: 11px; }
+      .r-amount b { color: #1d4ed8; font-size: 14px; }
+      .r-balance { display: flex; justify-content: space-between; align-items: center; font-size: 12px; margin: 5px 0 6px 0; padding: 5px 9px; border-radius: 6px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .r-balance span { font-weight: 600; font-size: 10px; }
+      .r-balance b { font-size: 12px; }
       .r-balance-clear { background: #f0fdf4; }
       .r-balance-clear span, .r-balance-clear b { color: #16a34a; }
       .r-balance-due { background: #fef2f2; }
       .r-balance-due span, .r-balance-due b { color: #dc2626; }
-      .r-stamp { text-align: center; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; border-radius: 6px; padding: 6px; margin-top: 10px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .r-stamp { text-align: center; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; border-radius: 6px; padding: 4px; margin-top: 6px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .r-stamp-full { color: #16a34a; background: #f0fdf4; border: 1.5px solid #16a34a; }
       .r-stamp-partial { color: #d97706; background: #fffbeb; border: 1.5px solid #d97706; }
-      .r-sign { display: flex; justify-content: flex-end; margin-top: 22px; }
-      .r-sign-line { font-size: 10px; color: #374151; border-top: 1px solid #94a3b8; padding-top: 4px; width: 46%; text-align: center; }
-      .r-footer { border-top: 1px solid #e5e7eb; color: #9ca3af; font-size: 9px; line-height: 1.5; margin-top: 18px; padding-top: 6px; text-align: center; }
-      .cut-line { text-align: center; font-size: 10px; color: #94a3b8; margin: 10px 0; letter-spacing: -0.5px; }
+      .r-sign { display: flex; justify-content: flex-end; margin-top: 12px; }
+      .r-sign-line { font-size: 9px; color: #374151; border-top: 1px solid #94a3b8; padding-top: 3px; width: 46%; text-align: center; }
+      .r-footer { border-top: 1px solid #e5e7eb; color: #9ca3af; font-size: 8px; line-height: 1.4; margin-top: 10px; padding-top: 4px; text-align: center; }
+      .cut-line { text-align: center; font-size: 9px; color: #94a3b8; margin: 0; letter-spacing: -0.5px; flex-shrink: 0; }
       @media print { .sheet { page-break-after: always; } }
     </style>
   </head>
