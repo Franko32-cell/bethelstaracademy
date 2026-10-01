@@ -18,6 +18,8 @@ from PIL import Image as PilImage, ImageOps
 
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
 
 import requests
 
@@ -36,6 +38,7 @@ WHITE  = colors.white
 GREEN  = colors.HexColor("#16a34a")
 LGREEN = colors.HexColor("#dcfce7")
 RED    = colors.HexColor("#dc2626")
+LRED   = colors.HexColor("#fef2f2")
 BLACK  = colors.HexColor("#111827")
 
 TERM_LABELS = {"term1": "Term 1", "term2": "Term 2", "term3": "Term 3"}
@@ -59,6 +62,10 @@ def para(text, size=9, bold=False, color=DGRAY, align=TA_LEFT):
         leading=size + 4,
         spaceAfter=0,
     ))
+
+
+def rcp(txn_id):
+    return f"RCP-{txn_id:06d}"
 
 
 def load_logo():
@@ -112,6 +119,18 @@ def load_student_photo(student, size=18 * mm):
     return None
 
 
+def draw_void_watermark(canvas, doc):
+    """Big diagonal VOID across the page (drawn behind the content)."""
+    canvas.saveState()
+    canvas.setFillColor(RED)
+    canvas.setFillAlpha(0.15)
+    canvas.setFont("Helvetica-Bold", 96)
+    canvas.translate(A5[0] / 2, A5[1] / 2)
+    canvas.rotate(35)
+    canvas.drawCentredString(0, 0, "VOID")
+    canvas.restoreState()
+
+
 # ---------------------------------------------------------------------------
 # Receipt PDF View
 # ---------------------------------------------------------------------------
@@ -120,9 +139,27 @@ class PaymentReceiptPDFView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, transaction_id):
-        txn     = get_object_or_404(PaymentTransaction, id=transaction_id)
+        # Students must not be able to download other people's receipts.
+        # Remove this guard if you intentionally expose receipts to a student/parent portal
+        # (in that case, also check the receipt belongs to that student).
+        if getattr(request.user, "role", "") == "student":
+            return Response(
+                {"error": "You do not have permission to download receipts."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        txn = get_object_or_404(
+            PaymentTransaction.objects.select_related(
+                "fee__student__school_class", "fee__school_class", "recorded_by", "voided_by",
+            ),
+            id=transaction_id,
+        )
         fee     = txn.fee
         student = fee.student
+
+        is_void = txn.is_void
+        # If this receipt was issued as a correction, find the receipt it replaced
+        replaces = PaymentTransaction.objects.filter(replaced_by=txn).only("id").first()
 
         buffer = BytesIO()
         pdf    = SimpleDocTemplate(
@@ -139,15 +176,19 @@ class PaymentReceiptPDFView(APIView):
         logo      = load_logo()
         logo_cell = logo if logo else para("", 9)
 
+        title_text  = "PAYMENT RECEIPT - VOID" if is_void else "PAYMENT RECEIPT"
+        title_color = RED if is_void else BLACK
+
         school_block = [
             para("BETHEL STAR ACADEMY", 15, bold=True, color=BLUE, align=TA_CENTER),
             para("POWER KNOWLEDGE WISDOM",  7, color=LGRAY, align=TA_CENTER),
             para("P.O.Box 105, Darkuman",   7, color=LGRAY, align=TA_CENTER),
-            para("PAYMENT RECEIPT",        10, bold=True, color=BLACK, align=TA_CENTER),
+            Spacer(1, 1 * mm),
+            para(title_text, 10, bold=True, color=title_color, align=TA_CENTER),
         ]
         header = Table([[logo_cell, school_block, para("", 9)]], colWidths=[18 * mm, W - 36 * mm, 18 * mm])
         header.setStyle(TableStyle([
-            ("BACKGROUND",    (0, 0), (-1, -1), LBLUE),
+            ("BACKGROUND",    (0, 0), (-1, -1), LRED if is_void else LBLUE),
             ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
             ("TOPPADDING",    (0, 0), (-1, -1), 7),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
@@ -157,12 +198,26 @@ class PaymentReceiptPDFView(APIView):
         elements.append(header)
         elements.append(Spacer(1, 4 * mm))
 
+        # ── VOID banner (top of the page so it can't be missed) ───────────
+        if is_void:
+            banner = Table([[para(
+                "THIS RECEIPT HAS BEEN CANCELLED AND IS NOT VALID AS PROOF OF PAYMENT",
+                8, bold=True, color=WHITE, align=TA_CENTER,
+            )]], colWidths=[W])
+            banner.setStyle(TableStyle([
+                ("BACKGROUND",    (0, 0), (-1, -1), RED),
+                ("TOPPADDING",    (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]))
+            elements.append(banner)
+            elements.append(Spacer(1, 3 * mm))
+
         # ── Receipt meta ──────────────────────────────────────────────────
-        receipt_no   = f"RCP-{txn.id:06d}"
+        receipt_no   = rcp(txn.id)
         receipt_date = txn.created_at.strftime("%d %b %Y  %I:%M %p")
 
         meta = Table([[
-            para(f"Receipt No: {receipt_no}", 8, bold=True, color=BLUE),
+            para(f"Receipt No: {receipt_no}", 8, bold=True, color=RED if is_void else BLUE),
             para(f"Date: {receipt_date}", 8, color=DGRAY, align=TA_RIGHT),
         ]], colWidths=[W / 2, W / 2])
         meta.setStyle(TableStyle([
@@ -173,8 +228,9 @@ class PaymentReceiptPDFView(APIView):
         elements.append(Spacer(1, 3 * mm))
 
         # ── Student info + photo ──────────────────────────────────────────
-        class_name = student.school_class.name if student.school_class else "—"
-        term_label = TERM_LABELS.get(fee.term, fee.term)
+        billed_class = fee.school_class or student.school_class   # class at time of billing
+        class_name = billed_class.name if billed_class else "—"
+        term_label = f"{TERM_LABELS.get(fee.term, fee.term)} {fee.year}"
 
         photo      = load_student_photo(student, size=18 * mm)
         photo_cell = photo if photo else para("", 9)
@@ -236,34 +292,44 @@ class PaymentReceiptPDFView(APIView):
         if float(fee.arrears) > 0:
             breakdown_rows.append([para("Arrears", 8, color=RED), para(f"{float(fee.arrears):,.2f}", 8, color=RED, align=TA_RIGHT)])
 
+        # Spacer row marks where the summary block begins
         breakdown_rows.append([para("", 3), para("", 3)])
+        divider = len(breakdown_rows) - 1
 
         breakdown_rows.append([
             para("Total Fee Due", 9, bold=True, color=BLACK),
             para(f"{float(fee.total_amount):,.2f}", 9, bold=True, color=BLACK, align=TA_RIGHT),
         ])
-        breakdown_rows.append([
-            para("Amount Paid (this receipt)", 9, bold=True, color=GREEN),
-            para(f"{float(txn.amount):,.2f}", 9, bold=True, color=GREEN, align=TA_RIGHT),
-        ])
 
-        balance       = float(fee.balance)
-        balance_color = GREEN if balance <= 0 else RED
-        breakdown_rows.append([
-            para("Outstanding Balance", 9, bold=True, color=balance_color),
-            para(f"{balance:,.2f}", 9, bold=True, color=balance_color, align=TA_RIGHT),
-        ])
+        balance = float(fee.balance)
 
-        n_data  = len(breakdown_rows)
-        divider = n_data - 4
+        if is_void:
+            # No "outstanding balance" line: the figure on a cancelled receipt
+            # would reflect today's balance, not this payment, and be misleading.
+            breakdown_rows.append([
+                para("Amount Cancelled (this receipt)", 9, bold=True, color=RED),
+                para(f"<strike>{float(txn.amount):,.2f}</strike>", 9, bold=True, color=RED, align=TA_RIGHT),
+            ])
+            last_bg = LRED
+        else:
+            breakdown_rows.append([
+                para("Amount Paid (this receipt)", 9, bold=True, color=GREEN),
+                para(f"{float(txn.amount):,.2f}", 9, bold=True, color=GREEN, align=TA_RIGHT),
+            ])
+            balance_color = GREEN if balance <= 0 else RED
+            breakdown_rows.append([
+                para("Outstanding Balance", 9, bold=True, color=balance_color),
+                para(f"{balance:,.2f}", 9, bold=True, color=balance_color, align=TA_RIGHT),
+            ])
+            last_bg = LGREEN if balance <= 0 else LRED
 
         btbl = Table(breakdown_rows, colWidths=[W - 40 * mm, 40 * mm])
         btbl.setStyle(TableStyle([
             ("BACKGROUND",    (0, 0),  (-1, 0),              LBLUE),
             ("ROWBACKGROUNDS",(0, 1),  (-1, divider - 1),    [WHITE, colors.HexColor("#f9fafb")]),
-            ("BACKGROUND",    (0, divider + 1), (-1, -1),    colors.HexColor("#f0fdf4")),
-            ("LINEABOVE",     (0, divider + 1), (-1, divider + 1), 0.8, BLUE),
-            ("BACKGROUND",    (0, -1), (-1, -1),              LGREEN if balance <= 0 else colors.HexColor("#fef2f2")),
+            ("BACKGROUND",    (0, divider + 1), (-1, -1),    colors.HexColor("#f0fdf4") if not is_void else LRED),
+            ("LINEABOVE",     (0, divider + 1), (-1, divider + 1), 0.8, RED if is_void else BLUE),
+            ("BACKGROUND",    (0, -1), (-1, -1),              last_bg),
             ("TOPPADDING",    (0, 0),  (-1, -1), 4),
             ("BOTTOMPADDING", (0, 0),  (-1, -1), 4),
             ("LEFTPADDING",   (0, 0),  (-1, -1), 6),
@@ -287,6 +353,46 @@ class PaymentReceiptPDFView(APIView):
             elements.append(note_tbl)
             elements.append(Spacer(1, 4 * mm))
 
+        # ── Replacement reference (this receipt corrects an earlier one) ──
+        if replaces and not is_void:
+            ref_tbl = Table([[para(
+                f"This receipt replaces cancelled receipt {rcp(replaces.id)}.",
+                8, bold=True, color=BLUE,
+            )]], colWidths=[W])
+            ref_tbl.setStyle(TableStyle([
+                ("BACKGROUND",    (0, 0), (-1, -1), LBLUE),
+                ("BOX",           (0, 0), (-1, -1), 0.5, BLUE),
+                ("TOPPADDING",    (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ("LEFTPADDING",   (0, 0), (-1, -1), 7),
+            ]))
+            elements.append(ref_tbl)
+            elements.append(Spacer(1, 4 * mm))
+
+        # ── Void details ──────────────────────────────────────────────────
+        if is_void:
+            voided_when = txn.voided_at.strftime("%d %b %Y  %I:%M %p") if txn.voided_at else "—"
+            voided_by   = (txn.voided_by.get_full_name() or txn.voided_by.username) if txn.voided_by else "—"
+            lines = [
+                para(f"Cancelled on: {voided_when}", 8, color=RED),
+                para(f"Cancelled by: {voided_by}", 8, color=RED),
+                para(f"Reason: {txn.void_reason or '—'}", 8, color=RED),
+            ]
+            if txn.replaced_by_id:
+                lines.append(para(
+                    f"Replaced by receipt: {rcp(txn.replaced_by_id)}", 8, bold=True, color=RED,
+                ))
+            void_tbl = Table([[l] for l in lines], colWidths=[W])
+            void_tbl.setStyle(TableStyle([
+                ("BACKGROUND",    (0, 0), (-1, -1), LRED),
+                ("BOX",           (0, 0), (-1, -1), 0.8, RED),
+                ("TOPPADDING",    (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ("LEFTPADDING",   (0, 0), (-1, -1), 7),
+            ]))
+            elements.append(void_tbl)
+            elements.append(Spacer(1, 4 * mm))
+
         # ── Recorded by ───────────────────────────────────────────────────
         recorded_by = "System"
         if txn.recorded_by:
@@ -296,9 +402,18 @@ class PaymentReceiptPDFView(APIView):
         elements.append(Spacer(1, 5 * mm))
 
         # ── Status stamp ──────────────────────────────────────────────────
-        stamp_text  = "✓  PAYMENT RECEIVED" if balance <= 0 else "◑  PARTIAL PAYMENT"
-        stamp_color = GREEN if balance <= 0 else colors.HexColor("#d97706")
-        stamp_bg    = LGREEN if balance <= 0 else colors.HexColor("#fffbeb")
+        if is_void:
+            stamp_text  = "VOID - CANCELLED"
+            stamp_color = RED
+            stamp_bg    = LRED
+        elif balance <= 0:
+            stamp_text  = "✓  PAYMENT RECEIVED"
+            stamp_color = GREEN
+            stamp_bg    = LGREEN
+        else:
+            stamp_text  = "◑  PARTIAL PAYMENT"
+            stamp_color = colors.HexColor("#d97706")
+            stamp_bg    = colors.HexColor("#fffbeb")
 
         stamp = Table([[para(stamp_text, 11, bold=True, color=stamp_color, align=TA_CENTER)]], colWidths=[W])
         stamp.setStyle(TableStyle([
@@ -337,10 +452,17 @@ class PaymentReceiptPDFView(APIView):
         # ── Footer ────────────────────────────────────────────────────────
         elements.append(HRFlowable(width="100%", thickness=0.4, color=colors.HexColor("#e5e7eb")))
         elements.append(Spacer(1, 2 * mm))
-        elements.append(para("This is an official receipt. Please retain for your records.", 7, color=LGRAY, align=TA_CENTER))
-        elements.append(para("Thank you for your payment. — Bethel Star Academy", 7, color=LGRAY, align=TA_CENTER))
+        if is_void:
+            elements.append(para("This receipt is cancelled. Do not accept it as proof of payment.", 7, color=RED, align=TA_CENTER))
+            elements.append(para("Bethel Star Academy", 7, color=LGRAY, align=TA_CENTER))
+        else:
+            elements.append(para("This is an official receipt. Please retain for your records.", 7, color=LGRAY, align=TA_CENTER))
+            elements.append(para("Thank you for your payment. — Bethel Star Academy", 7, color=LGRAY, align=TA_CENTER))
 
-        pdf.build(elements)
+        if is_void:
+            pdf.build(elements, onFirstPage=draw_void_watermark, onLaterPages=draw_void_watermark)
+        else:
+            pdf.build(elements)
         pdf_data = buffer.getvalue()
         buffer.close()  # ← free memory immediately
 
@@ -349,7 +471,8 @@ class PaymentReceiptPDFView(APIView):
             name_slug = student.admission_number
 
         safe_name = re.sub(r'[^A-Za-z0-9_-]+', '_', name_slug).strip("_")
-        filename  = f"receipt_{receipt_no}_{safe_name}.pdf"
+        prefix    = "VOID_receipt" if is_void else "receipt"
+        filename  = f"{prefix}_{receipt_no}_{safe_name}.pdf"
 
         response = HttpResponse(pdf_data, content_type="application/pdf")
         response["Content-Disposition"] = (

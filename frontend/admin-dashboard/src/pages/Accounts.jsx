@@ -23,6 +23,37 @@ const fmt = (n) =>
     maximumFractionDigits: 2,
   })}`;
 
+const isoDate = (date) => {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+};
+
+const withParams = (base, extra) => {
+  const parts = Object.entries(extra)
+    .filter(([, value]) => value !== "" && value !== null && value !== undefined)
+    .map(([key, value]) => `${key}=${encodeURIComponent(value)}`);
+  if (!parts.length) return base;
+  return `${base}${base ? "&" : "?"}${parts.join("&")}`;
+};
+
+const downloadFile = async (url, fallbackFilename) => {
+  const response = await API.get(url, { responseType: "blob" });
+  const disposition = response.headers["content-disposition"];
+  let filename = fallbackFilename;
+  if (disposition) {
+    const match = disposition.match(/filename\*=UTF-8''(.+)|filename="?([^";]+)"?/);
+    if (match) filename = decodeURIComponent(match[1] || match[2]);
+  }
+  const objectUrl = window.URL.createObjectURL(new Blob([response.data]));
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000);
+};
+
 /* ─── Small shared components ───────────────────────────────────────────── */
 
 const Toast = ({ msg, type, onDismiss }) => {
@@ -183,6 +214,107 @@ const MobileRow = ({ label, children }) => (
   </div>
 );
 
+const CorrectPaymentModal = ({ txn, onClose, onDone }) => {
+  const [amount, setAmount] = useState(String(txn.amount));
+  const [reason, setReason] = useState("");
+  const [voidOnly, setVoidOnly] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const onKey = (event) => event.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const submit = async () => {
+    if (!reason.trim()) { setError("A reason is required."); return; }
+    if (!voidOnly) {
+      if (!amount || parseFloat(amount) <= 0) { setError("Enter the correct amount, or tick 'Cancel only'."); return; }
+      if (parseFloat(amount) === Number(txn.amount)) { setError("The new amount is the same as the old one. Nothing to correct."); return; }
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const payload = { transaction_id: txn.id, reason: reason.trim() };
+      if (!voidOnly) payload.amount = amount;
+      const response = await API.post(`/fees/${txn.fee_id}/correct-payment/`, payload);
+      onDone({ newTxnId: response.data.transaction_id, txn });
+    } catch (err) {
+      setError(err.response?.data?.error || "Failed to correct payment.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
+      <div className="relative bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md p-5 sm:p-7 space-y-4 z-10 max-h-[92dvh] overflow-y-auto">
+        <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto sm:hidden" />
+
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900 tracking-tight">Correct payment</h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {txn.receipt_no} · {txn.student_name} · {fmt(txn.amount)}
+            </p>
+          </div>
+          <button onClick={onClose} aria-label="Close"
+            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 text-base">×</button>
+        </div>
+
+        {error && (
+          <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs font-medium">
+            <span>⚠</span> {error}
+          </div>
+        )}
+
+        <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+          <input type="checkbox" checked={voidOnly} onChange={(event) => setVoidOnly(event.target.checked)} />
+          Cancel only (no replacement payment)
+        </label>
+
+        {!voidOnly && (
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-widest mb-1.5">
+              Correct amount (GHS) <span className="text-red-500">*</span>
+            </label>
+            <input type="number" min="0.01" step="0.01" value={amount} autoFocus
+              onChange={(event) => setAmount(event.target.value)}
+              className="w-full border border-slate-200 bg-slate-50 p-3 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 focus:bg-white" />
+          </div>
+        )}
+
+        <div>
+          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-widest mb-1.5">
+            Reason <span className="text-red-500">*</span>
+          </label>
+          <input type="text" value={reason} onChange={(event) => setReason(event.target.value)}
+            placeholder="e.g. Typed 200 instead of 300"
+            className="w-full border border-slate-200 bg-slate-50 p-3 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 focus:bg-white" />
+        </div>
+
+        <div className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 text-xs text-amber-700 leading-relaxed">
+          The original entry is kept and marked VOIDED. {voidOnly ? "" : "A new receipt will be generated. "}
+          The parent is notified by SMS. This action is logged.
+        </div>
+
+        <div className="flex gap-3 pt-1">
+          <button onClick={onClose}
+            className="flex-1 py-3 border border-slate-200 text-slate-600 text-sm font-semibold rounded-xl hover:bg-slate-50 transition-colors">
+            Back
+          </button>
+          <button onClick={submit} disabled={saving}
+            className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold rounded-xl disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+            {saving ? <><Spinner size="sm" /> Saving…</> : voidOnly ? "Cancel payment" : "Void & replace"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 /* ─── Delete Class Fees Modal ────────────────────────────────────────────── */
 const DeleteClassFeesModal = ({ classes, onClose, onDeleted }) => {
   const [selectedClass, setSelectedClass] = useState("");
@@ -199,10 +331,12 @@ const DeleteClassFeesModal = ({ classes, onClose, onDeleted }) => {
     setError("");
     setPreview(null);
     try {
-      const params = [`school_class=${selectedClass}`];
-      if (selectedTerm) params.push(`term=${selectedTerm}`);
-      if (selectedYear) params.push(`year=${selectedYear}`);
-      const r = await API.get(`/fees/delete-preview/?${params.join("&")}`);
+      const url = withParams("/fees/delete-preview/", {
+        school_class: selectedClass,
+        term: selectedTerm,
+        year: selectedYear,
+      });
+      const r = await API.get(url);
       setPreview(r.data);
     } catch {
       setError("Failed to load preview. Please try again.");
@@ -216,10 +350,12 @@ const DeleteClassFeesModal = ({ classes, onClose, onDeleted }) => {
     setDeleteLoading(true);
     setError("");
     try {
-      const params = [`school_class=${selectedClass}`];
-      if (selectedTerm) params.push(`term=${selectedTerm}`);
-      if (selectedYear) params.push(`year=${selectedYear}`);
-      const r = await API.delete(`/fees/delete-class-fees/?${params.join("&")}`);
+      const url = withParams("/fees/delete-class-fees/", {
+        school_class: selectedClass,
+        term: selectedTerm,
+        year: selectedYear,
+      });
+      const r = await API.delete(url);
       onDeleted(r.data?.detail || `Deleted ${preview.count} fee record(s).`);
       onClose();
     } catch {
@@ -418,8 +554,15 @@ const Accounts = () => {
   const [unassigned,    setUnassigned]    = useState([]);
 
   const [actionLoading, setActionLoading]   = useState(false);
+  const [printing, setPrinting]             = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deleteClass, setDeleteClass]       = useState("");
+
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [search, setSearch] = useState("");
+  const [showVoided, setShowVoided] = useState(false);
+  const [ledgerReload, setLedgerReload] = useState(0);
+  const [correcting, setCorrecting] = useState(null);
 
   const buildQuery = useCallback(() => {
     const p = [];
@@ -436,6 +579,7 @@ const Accounts = () => {
   }, []);
 
   useEffect(() => {
+    if (tab === "Income Ledger") return;
     setError("");
     const q = buildQuery();
 
@@ -452,7 +596,6 @@ const Accounts = () => {
     };
 
     if (tab === "Dashboard")         load("/accounts/dashboard/", setDashboard);
-    if (tab === "Income Ledger")     load("/accounts/ledger/",    setLedger);
     if (tab === "Collection Report") load("/accounts/collection/",setCollection);
     if (tab === "Defaulters")        load("/accounts/defaulters/",setDefaulters);
     if (tab === "Unassigned Fees") {
@@ -463,6 +606,93 @@ const Accounts = () => {
         .finally(() => setLoading(false));
     }
   }, [tab, buildQuery]);
+
+  useEffect(() => {
+    if (tab !== "Income Ledger") return;
+    setError("");
+    const timer = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const hasDate = Boolean(dateFrom || dateTo);
+        const params = new URLSearchParams();
+        if (selectedTerm) params.set("term", selectedTerm);
+        if (selectedClass) params.set("school_class", selectedClass);
+        if (!hasDate && selectedYear) params.set("year", selectedYear);
+        if (dateFrom) params.set("date_from", dateFrom);
+        if (dateTo) params.set("date_to", dateTo);
+        if (search.trim()) params.set("q", search.trim());
+        if (showVoided) params.set("include_void", "1");
+        const query = params.toString();
+        const response = await API.get(`/accounts/ledger/${query ? `?${query}` : ""}`);
+        setLedger(response.data);
+      } catch {
+        setError("Failed to load data. Please refresh.");
+      } finally {
+        setLoading(false);
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [tab, selectedTerm, selectedYear, selectedClass, dateFrom, dateTo, search, showVoided, ledgerReload]);
+
+  const setToday = () => {
+    const today = isoDate(new Date());
+    setDateFrom(today);
+    setDateTo(today);
+  };
+
+  const setYesterday = () => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const date = isoDate(yesterday);
+    setDateFrom(date);
+    setDateTo(date);
+  };
+
+  const setThisWeek = () => {
+    const today = new Date();
+    const day = (today.getDay() + 6) % 7;
+    const start = new Date(today);
+    start.setDate(today.getDate() - day);
+    setDateFrom(isoDate(start));
+    setDateTo(isoDate(today));
+  };
+
+  const clearLedgerFilters = () => {
+    setDateFrom("");
+    setDateTo("");
+    setSearch("");
+    setShowVoided(false);
+  };
+
+  const downloadReceipt = async (transaction) => {
+    try {
+      await downloadFile(
+        `/fees/receipt/${transaction.id}/`,
+        `receipt_${transaction.receipt_no}.pdf`,
+      );
+    } catch {
+      setError("Receipt download failed.");
+    }
+  };
+
+  const handleCorrected = async ({ newTxnId, txn }) => {
+    setCorrecting(null);
+    setLedgerReload((value) => value + 1);
+    if (newTxnId) {
+      setSuccess(`Payment corrected for ${txn.student_name}. Downloading new receipt…`);
+      try {
+        await downloadFile(
+          `/fees/receipt/${newTxnId}/`,
+          `receipt_RCP-${String(newTxnId).padStart(6, "0")}.pdf`,
+        );
+        setSuccess(`Payment corrected for ${txn.student_name}. New receipt downloaded.`);
+      } catch {
+        setSuccess(`Payment corrected for ${txn.student_name}. Receipt download failed, use the Receipt link to retry.`);
+      }
+    } else {
+      setSuccess(`Payment ${txn.receipt_no} cancelled for ${txn.student_name}.`);
+    }
+  };
 
   /* ── Unassigned fee actions ── */
   const deleteOneFee = async (feeId) => {
@@ -493,32 +723,35 @@ const Accounts = () => {
     }
   };
 
-  const deleteByClass = async () => {
-    if (!deleteClass) return;
-    const name = classes.find((c) => String(c.id) === String(deleteClass))?.name || "selected class";
-    const affected = unassigned.filter((f) => String(f.class_id) === String(deleteClass));
-    if (affected.length === 0) { setError(`No unassigned records for ${name}.`); return; }
-    if (!window.confirm(`Delete ${affected.length} record(s) for ${name}?`)) return;
-    setActionLoading(true);
+  const printDefaulters = async () => {
+    const win = window.open("", "_blank");
+    setPrinting(true);
     try {
-      const r = await API.delete(`/fees/unassigned-fees/delete/?school_class=${deleteClass}`);
-      setSuccess(r.data?.detail || `Deleted ${affected.length} record(s) for ${name}.`);
-      setUnassigned((prev) => prev.filter((f) => String(f.class_id) !== String(deleteClass)));
-      setDeleteClass("");
+      const r = await API.get(`/accounts/defaulters/pdf/${buildQuery()}`, { responseType: "blob" });
+      const url = window.URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
+      if (win) {
+        win.location.href = url;
+      } else {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "debtors.pdf";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
     } catch {
-      setError("Failed to delete fees for class.");
+      if (win) win.close();
+      setError("Could not generate the debtors list.");
     } finally {
-      setActionLoading(false);
+      setPrinting(false);
     }
   };
 
-  const classesWithUnassigned = classes.filter((c) =>
-    unassigned.some((f) => String(f.class_id) === String(c.id))
-  );
   const unassignedCount = unassigned.length;
 
   /* Active filter count for the toggle button */
   const activeFilterCount = [selectedTerm, selectedClass].filter(Boolean).length;
+  const hasLedgerFilters = Boolean(dateFrom || dateTo || search || showVoided);
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans">
@@ -530,6 +763,14 @@ const Accounts = () => {
             setSuccess(msg);
             API.get(`/accounts/dashboard/${buildQuery()}`).then((r) => setDashboard(r.data)).catch(() => {});
           }}
+        />
+      )}
+
+      {correcting && (
+        <CorrectPaymentModal
+          txn={correcting}
+          onClose={() => setCorrecting(null)}
+          onDone={handleCorrected}
         />
       )}
 
@@ -613,6 +854,59 @@ const Accounts = () => {
             </div>
           </div>
         </div>
+
+        {tab === "Income Ledger" && (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5 mb-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Find a payment</p>
+              {hasLedgerFilters && (
+                <button onClick={clearLedgerFilters} className="text-xs text-blue-600 hover:text-blue-800 underline underline-offset-2">
+                  Clear
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-3 sm:items-end">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Received from</label>
+                <input type="date" value={dateFrom} max={dateTo || undefined}
+                  onChange={(event) => setDateFrom(event.target.value)}
+                  className="w-full border border-slate-200 bg-slate-50 px-3 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:bg-white" />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Received to</label>
+                <input type="date" value={dateTo} min={dateFrom || undefined}
+                  onChange={(event) => setDateTo(event.target.value)}
+                  className="w-full border border-slate-200 bg-slate-50 px-3 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:bg-white" />
+              </div>
+              <div className="col-span-2 sm:flex-1 sm:min-w-[220px]">
+                <label className="block text-xs text-slate-400 mb-1">Search</label>
+                <input type="text" value={search} onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Student name, admission no., receipt no. (RCP-000123) or note"
+                  className="w-full border border-slate-200 bg-slate-50 px-3 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:bg-white" />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {[["Today", setToday], ["Yesterday", setYesterday], ["This week", setThisWeek]].map(([label, callback]) => (
+                <button key={label} onClick={callback}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-full transition-colors">
+                  {label}
+                </button>
+              ))}
+              <label className="ml-auto flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
+                <input type="checkbox" checked={showVoided} onChange={(event) => setShowVoided(event.target.checked)} />
+                Show voided
+              </label>
+            </div>
+
+            {(dateFrom || dateTo) && (
+              <p className="text-[11px] text-slate-400">
+                Showing payments by the date they were received. The Year filter is ignored while a date is set.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* ── Content ── */}
         {loading ? (
@@ -740,25 +1034,39 @@ const Accounts = () => {
                 </div>
 
                 {ledger.transactions.length === 0 ? (
-                  <EmptyState icon="📒" title="No transactions found" subtitle="Try adjusting the filters above." />
+                  <EmptyState icon="📒" title="No transactions found" subtitle="Try a different date or clear the filters above." />
                 ) : (
                   <>
                     {/* Mobile cards */}
                     <div className="space-y-3 sm:hidden">
                       {ledger.transactions.map((t) => (
-                        <MobileCard key={t.id}>
+                        <MobileCard key={t.id} highlighted={t.is_void}>
                           <div className="flex items-start justify-between gap-2">
                             <div>
                               <p className="font-semibold text-slate-800 text-sm">{t.student_name}</p>
                               <p className="text-xs text-slate-400 font-mono">{t.admission_number}</p>
                             </div>
-                            <span className="font-bold text-emerald-600 text-sm whitespace-nowrap">{fmt(t.amount)}</span>
+                            <span className={`font-bold text-sm whitespace-nowrap ${t.is_void ? "text-slate-400 line-through" : "text-emerald-600"}`}>{fmt(t.amount)}</span>
                           </div>
+                          <MobileRow label="Receipt"><span className="text-slate-600 text-xs font-mono">{t.receipt_no}</span></MobileRow>
                           <MobileRow label="Class"><span className="text-slate-600 text-sm">{t.class}</span></MobileRow>
-                          <MobileRow label="Term"><Badge>{t.term}</Badge></MobileRow>
+                          <MobileRow label="Term"><Badge>{t.term} {t.year}</Badge></MobileRow>
                           <MobileRow label="Note"><span className="text-slate-400 italic text-xs">{t.note || "—"}</span></MobileRow>
                           <MobileRow label="By"><span className="text-slate-500 text-xs">{t.recorded_by}</span></MobileRow>
                           <MobileRow label="Date"><span className="text-slate-400 text-xs tabular-nums">{t.created_at}</span></MobileRow>
+                          {t.is_void && <p className="text-xs text-red-500">VOIDED: {t.void_reason}</p>}
+                          <div className="flex gap-2 pt-1">
+                            <button onClick={() => downloadReceipt(t)}
+                              className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition-colors">
+                              Receipt
+                            </button>
+                            {t.can_correct && (
+                              <button onClick={() => setCorrecting(t)}
+                                className="flex-1 py-2 bg-amber-100 hover:bg-amber-200 text-amber-700 text-xs font-semibold rounded-lg transition-colors">
+                                Correct
+                              </button>
+                            )}
+                          </div>
                         </MobileCard>
                       ))}
                     </div>
@@ -766,21 +1074,46 @@ const Accounts = () => {
                     <div className="hidden sm:block">
                       <DataTable
                         headers={[
+                          { label: "Receipt", align: "left" },
                           { label: "Student", align: "left" },
                           { label: "Class" }, { label: "Term" },
                           { label: "Amount" }, { label: "Note" },
                           { label: "Recorded by" }, { label: "Date & time" },
+                          { label: "Actions" },
                         ]}
                       >
                         {ledger.transactions.map((t, i) => (
-                          <tr key={t.id} className={`hover:bg-slate-50 transition-colors ${i % 2 !== 0 ? "bg-slate-50/40" : ""}`}>
+                          <tr key={t.id} className={`transition-colors ${t.is_void ? "bg-red-50/40" : `hover:bg-slate-50 ${i % 2 !== 0 ? "bg-slate-50/40" : ""}`}`}>
+                            <Td align="left">
+                              <span className="font-mono text-xs text-slate-600 whitespace-nowrap">{t.receipt_no}</span>
+                              {t.is_void && <p className="text-[10px] font-bold text-red-500 mt-0.5">VOIDED</p>}
+                            </Td>
                             <StudentCell name={t.student_name} admissionNumber={t.admission_number} />
                             <Td><span className="text-slate-600">{t.class}</span></Td>
-                            <Td><Badge>{t.term}</Badge></Td>
-                            <Td><span className="font-bold text-emerald-600">{fmt(t.amount)}</span></Td>
-                            <Td><span className="text-slate-400 italic text-xs">{t.note || "—"}</span></Td>
+                            <Td><Badge>{t.term} {t.year}</Badge></Td>
+                            <Td>
+                              <span className={`font-bold ${t.is_void ? "text-slate-400 line-through" : "text-emerald-600"}`}>{fmt(t.amount)}</span>
+                            </Td>
+                            <Td>
+                              <span className="text-slate-400 italic text-xs">{t.note || "—"}</span>
+                              {t.is_void && t.void_reason && <p className="text-[11px] text-red-500 mt-0.5 not-italic">{t.void_reason}</p>}
+                            </Td>
                             <Td><span className="text-slate-500 text-xs">{t.recorded_by}</span></Td>
                             <Td><span className="text-slate-400 text-xs tabular-nums">{t.created_at}</span></Td>
+                            <Td>
+                              <div className="flex gap-1.5 justify-center">
+                                <button onClick={() => downloadReceipt(t)}
+                                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition-colors">
+                                  Receipt
+                                </button>
+                                {t.can_correct && (
+                                  <button onClick={() => setCorrecting(t)}
+                                    className="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-700 text-xs font-semibold rounded-lg transition-colors">
+                                    Correct
+                                  </button>
+                                )}
+                              </div>
+                            </Td>
                           </tr>
                         ))}
                       </DataTable>
@@ -799,7 +1132,7 @@ const Accounts = () => {
                   {/* Mobile cards */}
                   <div className="space-y-3 sm:hidden">
                     {collection.map((row) => (
-                      <MobileCard key={row.class_id}>
+                      <MobileCard key={row.class_id ?? "unassigned"}>
                         <div className="flex items-center justify-between">
                           <p className="font-semibold text-slate-800 text-sm">{row.class_name}</p>
                           <span className="text-xs text-slate-400">{row.total_students} students</span>
@@ -828,7 +1161,7 @@ const Accounts = () => {
                       ]}
                     >
                       {collection.map((row, i) => (
-                        <tr key={row.class_id} className={`hover:bg-slate-50 transition-colors ${i % 2 !== 0 ? "bg-slate-50/40" : ""}`}>
+                        <tr key={row.class_id ?? "unassigned"} className={`hover:bg-slate-50 transition-colors ${i % 2 !== 0 ? "bg-slate-50/40" : ""}`}>
                           <Td align="left"><span className="font-semibold text-slate-800">{row.class_name}</span></Td>
                           <Td><span className="text-slate-600">{row.total_students}</span></Td>
                           <Td><span className="text-slate-700">{fmt(row.total_billed)}</span></Td>
@@ -848,9 +1181,19 @@ const Accounts = () => {
             {/* ════════════════ DEFAULTERS ════════════════ */}
             {tab === "Defaulters" && defaulters && (
               <div className="space-y-5">
-                <div className="grid grid-cols-2 gap-3 max-w-xs">
-                  <StatCard label="Outstanding"    value={fmt(defaulters.total_outstanding)} color="text-red-600"   bg="bg-red-50"   />
-                  <StatCard label="With balance"   value={defaulters.count}                  color="text-amber-600" bg="bg-amber-50" />
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="grid grid-cols-2 gap-3 max-w-xs">
+                    <StatCard label="Outstanding"    value={fmt(defaulters.total_outstanding)} color="text-red-600"   bg="bg-red-50"   />
+                    <StatCard label="With balance"   value={defaulters.count}                  color="text-amber-600" bg="bg-amber-50" />
+                  </div>
+                  <button
+                    onClick={printDefaulters}
+                    disabled={printing || defaulters.count === 0}
+                    className="flex items-center justify-center gap-2 w-full sm:w-auto px-5 py-3 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-sm font-semibold rounded-xl shadow-sm transition-colors disabled:opacity-40"
+                  >
+                    {printing ? <Spinner size="sm" /> : <span className="text-base leading-none">🖨</span>}
+                    Print debtors list
+                  </button>
                 </div>
 
                 {defaulters.defaulters.length === 0 ? (
@@ -939,49 +1282,6 @@ const Accounts = () => {
                   )}
                 </div>
 
-                {/* Delete by class */}
-                {unassignedCount > 0 && (
-                  <div className="bg-white rounded-2xl border border-red-200 p-4 sm:p-5">
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">Delete bills by class</p>
-                    <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-3">
-                      <div className="flex-1 sm:min-w-[200px]">
-                        <select
-                          value={deleteClass}
-                          onChange={(e) => setDeleteClass(e.target.value)}
-                          className="w-full border border-slate-200 bg-slate-50 p-3 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-400 focus:bg-white transition-colors"
-                        >
-                          <option value="">— Select a class —</option>
-                          {classesWithUnassigned.map((c) => {
-                            const count = unassigned.filter((f) => String(f.class_id) === String(c.id)).length;
-                            return (
-                              <option key={c.id} value={c.id}>
-                                {c.name} ({count} record{count !== 1 ? "s" : ""})
-                              </option>
-                            );
-                          })}
-                        </select>
-                      </div>
-                      <button
-                        onClick={deleteByClass}
-                        disabled={!deleteClass || actionLoading}
-                        className="flex items-center justify-center gap-2 w-full sm:w-auto px-4 py-3 bg-red-100 hover:bg-red-200 active:bg-red-300 text-red-700 text-sm font-semibold rounded-xl disabled:opacity-40 transition-colors"
-                      >
-                        {actionLoading ? <Spinner size="sm" /> : <span className="text-sm">🗑</span>}
-                        Delete class bills
-                      </button>
-                    </div>
-                    {deleteClass && (() => {
-                      const count = unassigned.filter((f) => String(f.class_id) === String(deleteClass)).length;
-                      const name  = classes.find((c) => String(c.id) === String(deleteClass))?.name;
-                      return (
-                        <p className="text-xs text-red-500 mt-2.5">
-                          ⚠ Permanently deletes {count} record{count !== 1 ? "s" : ""} for <strong>{name}</strong>.
-                        </p>
-                      );
-                    })()}
-                  </div>
-                )}
-
                 {unassignedCount === 0 ? (
                   <EmptyState
                     icon="✅"
@@ -992,10 +1292,8 @@ const Accounts = () => {
                   <>
                     {/* Mobile cards */}
                     <div className="space-y-3 sm:hidden">
-                      {unassigned.map((f) => {
-                        const isHighlighted = deleteClass && String(f.class_id) === String(deleteClass);
-                        return (
-                          <MobileCard key={f.fee_id} highlighted={isHighlighted}>
+                      {unassigned.map((f) => (
+                          <MobileCard key={f.fee_id}>
                             <div className="flex items-start justify-between gap-2">
                               <div>
                                 <p className="font-semibold text-slate-800 text-sm">{f.student_name}</p>
@@ -1009,7 +1307,6 @@ const Accounts = () => {
                                 Delete
                               </button>
                             </div>
-                            <MobileRow label="Class"><span className="text-slate-600 text-sm">{f.class_name || "—"}</span></MobileRow>
                             <MobileRow label="Term"><Badge>{f.term.replace("term", "Term ")}</Badge></MobileRow>
                             <MobileRow label="Billed / Paid">
                               <span className="text-sm"><span className="text-slate-700">{fmt(f.total_amount)}</span> / <span className="text-emerald-600">{fmt(f.paid)}</span></span>
@@ -1017,33 +1314,25 @@ const Accounts = () => {
                             <MobileRow label="Balance"><span className="font-bold text-red-500 text-sm">{fmt(f.balance)}</span></MobileRow>
                             <MobileRow label="Added"><span className="text-slate-400 text-xs tabular-nums">{f.created_at}</span></MobileRow>
                           </MobileCard>
-                        );
-                      })}
+                      ))}
                     </div>
                     {/* Desktop table */}
                     <div className="hidden sm:block">
                       <DataTable
                         headers={[
                           { label: "Student", align: "left" },
-                          { label: "Class" }, { label: "Term" },
-                          { label: "Billed" }, { label: "Paid" },
+                          { label: "Term" }, { label: "Billed" },
+                          { label: "Paid" },
                           { label: "Balance" }, { label: "Date added" },
                           { label: "Action" },
                         ]}
                       >
-                        {unassigned.map((f, i) => {
-                          const isHighlighted = deleteClass && String(f.class_id) === String(deleteClass);
-                          return (
+                        {unassigned.map((f, i) => (
                             <tr
                               key={f.fee_id}
-                              className={`transition-colors ${
-                                isHighlighted
-                                  ? "bg-red-50"
-                                  : i % 2 !== 0 ? "bg-slate-50/40 hover:bg-red-50/30" : "hover:bg-red-50/30"
-                              }`}
+                              className={`transition-colors hover:bg-red-50/30 ${i % 2 !== 0 ? "bg-slate-50/40" : ""}`}
                             >
                               <StudentCell name={f.student_name} admissionNumber={f.admission_number} />
-                              <Td><span className="text-slate-600">{f.class_name || "—"}</span></Td>
                               <Td><Badge>{f.term.replace("term", "Term ")}</Badge></Td>
                               <Td><span className="font-medium text-slate-700">{fmt(f.total_amount)}</span></Td>
                               <Td><span className="text-emerald-600">{fmt(f.paid)}</span></Td>
@@ -1059,8 +1348,7 @@ const Accounts = () => {
                                 </button>
                               </Td>
                             </tr>
-                          );
-                        })}
+                        ))}
                       </DataTable>
                     </div>
                   </>

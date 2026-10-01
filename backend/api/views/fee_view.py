@@ -1,10 +1,13 @@
 import hmac
 import hashlib
 import logging
+from datetime import timedelta
 from decimal import Decimal
 
 from django.conf import settings
+from django.db import IntegrityError, transaction
 from django.db.models import Sum, Count, Q, Prefetch
+from django.utils import timezone
 
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -25,12 +28,93 @@ from apps.audit.services import log_action
 
 logger = logging.getLogger(__name__)
 
+# Non-admins may correct their OWN payments only within this window.
+CORRECTION_WINDOW = timedelta(hours=24)
+
 
 def to_decimal(value, default=Decimal("0")):
     try:
         return Decimal(str(value)) if value not in (None, "") else default
     except Exception:
         return default
+
+
+def parse_year(value, default=None):
+    """Return an int year, `default` if blank, or raise ValueError if invalid."""
+    if value in (None, ""):
+        return default
+    year = int(value)
+    if not (2000 <= year <= 2100):
+        raise ValueError("year out of range")
+    return year
+
+
+def user_display(user):
+    if not user:
+        return "System"
+    return user.get_full_name() or user.username
+
+
+def can_correct_payment(user, txn):
+    """Admins can always correct. Others only their own entries within 24h."""
+    if user.is_superuser or getattr(user, "role", "") == "admin":
+        return True
+    if txn.recorded_by_id and txn.recorded_by_id == user.id:
+        return timezone.now() - txn.created_at <= CORRECTION_WINDOW
+    return False
+
+
+def is_paystack_txn(txn):
+    return bool(txn.reference) or "paystack" in (txn.note or "").lower()
+
+
+def send_payment_sms(fee, amount, txn_id):
+    """Send the standard 'payment received' SMS. Never raises."""
+    parent_phone = fee.student.parent_phone
+    if not parent_phone:
+        logger.warning("No parent phone for student %s — SMS skipped", fee.student.full_name)
+        return
+    message = fee_payment_received(
+        parent_name    = fee.student.parent_name or "Parent/Guardian",
+        student_name   = fee.student.full_name,
+        student_class  = str(fee.student.school_class) if fee.student.school_class else "N/A",
+        amount_paid    = amount,
+        balance        = fee.balance,
+        term           = fee.get_term_display(),
+        transaction_id = txn_id,
+    )
+    try:
+        TermiiSMSService().send(phone=parent_phone, message=message)
+        logger.info("SMS sent for student %s | txn=%s", fee.student.full_name, txn_id)
+    except TermiiSMSError as e:
+        logger.error("SMS failed for student %s: %s", fee.student.full_name, e)
+    except Exception:
+        logger.exception("Unexpected SMS error for student %s", fee.student.full_name)
+
+
+def send_correction_sms(student, term_label, balance, old_id, old_amount, new_id, new_amount):
+    """Tell the parent a receipt was cancelled/replaced. Never raises."""
+    if not student.parent_phone:
+        return
+    name = student.parent_name or "Parent/Guardian"
+    if new_id:
+        message = (
+            f"Dear {name}, a correction was made to a fee payment for {student.full_name} "
+            f"({term_label}). Receipt #{old_id} (GHS {old_amount}) is cancelled and replaced by "
+            f"receipt #{new_id} (GHS {new_amount}). Outstanding balance: GHS {balance}."
+        )
+    else:
+        message = (
+            f"Dear {name}, receipt #{old_id} (GHS {old_amount}) for {student.full_name} "
+            f"({term_label}) has been cancelled. Outstanding balance: GHS {balance}. "
+            f"Please contact the school office if you have questions."
+        )
+    try:
+        TermiiSMSService().send(phone=student.parent_phone, message=message)
+    except TermiiSMSError as e:
+        logger.error("Correction SMS failed for %s: %s", student.full_name, e)
+    except Exception:
+        logger.exception("Unexpected correction SMS error for %s", student.full_name)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -43,14 +127,13 @@ def paystack_webhook(request):
     """
     Paystack POSTs here after every successful charge.
     - Verifies HMAC-SHA512 signature
-    - Idempotent: skips if the Paystack reference was already recorded
-    - Records payment and sends SMS to parent
+    - Idempotent: unique `reference` column + exact-match check
+    - Atomic and row-locked so concurrent payments can't overwrite each other
     """
     secret    = getattr(settings, "PAYSTACK_SECRET_KEY", "")
     signature = request.headers.get("x-paystack-signature", "")
     body      = request.body
 
-    # ── Signature verification ────────────────────────────────────────────────
     expected = hmac.new(secret.encode(), body, hashlib.sha512).hexdigest()
     if not hmac.compare_digest(expected, signature):
         logger.warning("Paystack webhook: invalid signature received")
@@ -67,90 +150,88 @@ def paystack_webhook(request):
     amount_kobo = data.get("amount", 0)
     amount      = Decimal(str(amount_kobo)) / 100
 
-    # ── Extract fee_id from Paystack metadata ─────────────────────────────────
-    meta      = data.get("metadata", {})
-    fields    = {f["variable_name"]: f["value"] for f in meta.get("custom_fields", [])}
-    fee_id    = fields.get("fee_id")
+    meta   = data.get("metadata", {}) or {}
+    fields = {f["variable_name"]: f["value"] for f in meta.get("custom_fields", [])}
+    fee_id = fields.get("fee_id")
 
     if not fee_id:
         logger.error("Paystack webhook: no fee_id in metadata. ref=%s", reference)
         return Response({"status": "no fee_id"})
 
-    # ── Idempotency check ─────────────────────────────────────────────────────
-    if PaymentTransaction.objects.filter(note__icontains=reference).exists():
+    if not reference:
+        logger.error("Paystack webhook: missing reference")
+        return Response({"status": "no reference"})
+
+    # Legacy rows have the reference only inside `note`, so check both.
+    def already_recorded():
+        return PaymentTransaction.objects.filter(
+            Q(reference=reference) | Q(note__icontains=reference)
+        ).exists()
+
+    if already_recorded():
         logger.info("Paystack webhook: duplicate ref=%s — skipping", reference)
         return Response({"status": "duplicate"})
 
-    # ── Load fee ──────────────────────────────────────────────────────────────
     try:
-        fee = Fee.objects.select_related(
-            "student", "student__school_class"
-        ).get(id=fee_id)
-    except Fee.DoesNotExist:
-        logger.error("Paystack webhook: Fee %s not found", fee_id)
-        return Response({"status": "fee not found"})
+        with transaction.atomic():
+            try:
+                fee = (
+                    Fee.objects
+                    .select_for_update(of=("self",))
+                    .select_related("student", "student__school_class")
+                    .get(id=fee_id)
+                )
+            except Fee.DoesNotExist:
+                logger.error("Paystack webhook: Fee %s not found", fee_id)
+                return Response({"status": "fee not found"})
 
-    # Cap amount at current balance to prevent negative balance
-    if amount > fee.balance:
-        logger.warning(
-            "Paystack webhook: amount %s exceeds balance %s for fee %s — capping",
-            amount, fee.balance, fee_id,
-        )
-        amount = fee.balance
+            # Re-check inside the lock (another delivery may have just finished)
+            if already_recorded():
+                return Response({"status": "duplicate"})
 
-    # ── Record payment ────────────────────────────────────────────────────────
-    old_balance = fee.balance
-    fee.paid += amount
-    fee.save()
+            if amount > fee.balance:
+                logger.warning(
+                    "Paystack webhook: amount %s exceeds balance %s for fee %s — capping",
+                    amount, fee.balance, fee_id,
+                )
+                amount = fee.balance
 
-    txn = PaymentTransaction.objects.create(
-        fee         = fee,
-        amount      = amount,
-        note        = f"Paystack webhook ref: {reference}",
-        recorded_by = None,
-    )
+            if amount <= 0:
+                logger.warning(
+                    "Paystack webhook: fee %s already fully paid, ref=%s — needs manual refund review",
+                    fee_id, reference,
+                )
+                return Response({"status": "already paid"})
 
-    log_action(
-        request=request,
-        action=AuditLog.Action.PAYMENT_PROCESSED,
-        module=AuditLog.Module.FEES,
-        resource_type="PaymentTransaction",
-        resource_id=txn.id,
-        resource_repr=f"Payment: {fee.student.full_name} — {fee.get_term_display()} (Paystack)",
-        previous_value={"balance": str(old_balance)},
-        new_value={"balance": str(fee.balance), "amount_paid": str(amount)},
-        description=f"Paystack webhook ref: {reference}",
-    )
+            old_balance = fee.balance
+            fee.paid += amount
+            fee.save()
 
-    # ── Send SMS ──────────────────────────────────────────────────────────────
-    parent_phone = fee.student.parent_phone
-    if parent_phone:
-        message = fee_payment_received(
-            parent_name    = fee.student.parent_name or "Parent/Guardian",
-            student_name   = fee.student.full_name,
-            student_class  = str(fee.student.school_class) if fee.student.school_class else "N/A",
-            amount_paid    = amount,
-            balance        = fee.balance,
-            term           = fee.get_term_display(),
-            transaction_id = txn.id,
-        )
-        try:
-            TermiiSMSService().send(phone=parent_phone, message=message)
-            logger.info(
-                "Webhook SMS sent for student %s | txn=%s",
-                fee.student.full_name, txn.id,
+            txn = PaymentTransaction.objects.create(
+                fee         = fee,
+                amount      = amount,
+                note        = f"Paystack webhook ref: {reference}",
+                reference   = reference,
+                recorded_by = None,
             )
-        except TermiiSMSError as e:
-            logger.error(
-                "Webhook SMS failed for student %s: %s",
-                fee.student.full_name, e,
-            )
-    else:
-        logger.warning(
-            "Webhook: no parent phone for student %s — SMS skipped",
-            fee.student.full_name,
-        )
 
+            log_action(
+                request=request,
+                action=AuditLog.Action.PAYMENT_PROCESSED,
+                module=AuditLog.Module.FEES,
+                resource_type="PaymentTransaction",
+                resource_id=txn.id,
+                resource_repr=f"Payment: {fee.student.full_name} — {fee.get_term_display()} (Paystack)",
+                previous_value={"balance": str(old_balance)},
+                new_value={"balance": str(fee.balance), "amount_paid": str(amount)},
+                description=f"Paystack webhook ref: {reference}",
+            )
+    except IntegrityError:
+        # Unique `reference` collision from a simultaneous duplicate delivery
+        logger.info("Paystack webhook: duplicate ref=%s (integrity) — skipping", reference)
+        return Response({"status": "duplicate"})
+
+    send_payment_sms(fee, amount, txn.id)
     return Response({"status": "ok"})
 
 
@@ -165,21 +246,9 @@ class FeeViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        # PERF FIX: FeeSerializer nests PaymentTransactionSerializer(many=True)
-        # for every fee, and PaymentTransactionSerializer.get_student_name()/
-        # get_admission_number() read obj.fee.student for every transaction.
-        # Without prefetch_related here, that was 1 query per fee for its
-        # transactions PLUS 2 extra queries per transaction (.fee, then
-        # .fee.student) — an N+1 cascade severe enough to time out the /fees/
-        # list endpoint entirely once there was enough payment history.
-        #
-        # select_related("recorded_by") on the inner queryset avoids the same
-        # problem for get_recorded_by_name(). We don't need to additionally
-        # select_related("fee__student") inside the Prefetch — Django's
-        # prefetch_related machinery reuses the exact same Fee instance object
-        # for `.fee` on each prefetched transaction, and that instance already
-        # has `.student` cached from the outer .select_related("student")
-        # below, so `.fee.student` resolves from memory with zero extra query.
+        # PERF: prefetch nested transactions (and their recorded_by) so the
+        # list endpoint doesn't do an N+1 cascade. `.fee.student` resolves from
+        # the already-loaded Fee instance, so no extra query for it.
         qs = (
             super()
             .get_queryset()
@@ -188,7 +257,7 @@ class FeeViewSet(ModelViewSet):
                 Prefetch(
                     "transactions",
                     queryset=PaymentTransaction.objects
-                        .select_related("recorded_by")
+                        .select_related("recorded_by", "voided_by")
                         .order_by("-created_at"),
                 )
             )
@@ -197,12 +266,18 @@ class FeeViewSet(ModelViewSet):
 
         student      = params.get("student")
         term         = params.get("term")
+        year         = params.get("year")
         school_class = params.get("school_class")
         status_param = params.get("status")
 
         if student:      qs = qs.filter(student_id=student)
         if term:         qs = qs.filter(term=term)
-        if school_class: qs = qs.filter(student__school_class_id=school_class)
+        if year:
+            try:
+                qs = qs.filter(year=int(year))
+            except ValueError:
+                pass
+        if school_class: qs = qs.filter(school_class_id=school_class)
 
         if status_param == "paid":
             qs = qs.filter(balance__lte=0)
@@ -213,106 +288,245 @@ class FeeViewSet(ModelViewSet):
 
         return qs
 
+    # ── Never silently destroy a fee that has money recorded on it ────────────
+
+    def destroy(self, request, *args, **kwargs):
+        fee = self.get_object()
+        if fee.paid > 0 or fee.transactions.filter(is_void=False).exists():
+            return Response(
+                {"error": "This fee has recorded payments. Void the payments first, "
+                          "then delete the fee."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        student_name = fee.student.full_name
+        term_label   = fee.get_term_display()
+        fee_id       = fee.id
+        fee.delete()
+        log_action(
+            request=request,
+            action=AuditLog.Action.DELETE,
+            module=AuditLog.Module.FEES,
+            resource_type="Fee",
+            resource_id=fee_id,
+            resource_repr=f"Fee deleted: {student_name} — {term_label}",
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     # ── Record a payment ──────────────────────────────────────────────────────
 
     @action(detail=True, methods=["post"], url_path="pay")
     def pay(self, request, pk=None):
-        fee    = self.get_object()
+        self.get_object()  # permission / 404 check using the filtered queryset
+
         amount = request.data.get("amount")
         note   = request.data.get("note", "")
 
         if amount is None:
-            return Response(
-                {"error": "amount is required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": "amount is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             amount = Decimal(str(amount))
-        except (TypeError, ValueError):
-            return Response(
-                {"error": "amount must be a number"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        except Exception:
+            return Response({"error": "amount must be a number"}, status=status.HTTP_400_BAD_REQUEST)
 
         if amount <= 0:
-            return Response(
-                {"error": "amount must be greater than 0"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": "amount must be greater than 0"}, status=status.HTTP_400_BAD_REQUEST)
 
-        if amount > fee.balance:
-            return Response(
-                {"error": f"Amount exceeds outstanding balance of {fee.balance}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # ── Idempotency: skip if this Paystack reference already recorded ─────
         paystack_ref = None
         if note and "paystack ref:" in note.lower():
-            paystack_ref = note.split(":")[-1].strip()
-            if PaymentTransaction.objects.filter(note__icontains=paystack_ref).exists():
-                logger.info(
-                    "pay() action: duplicate Paystack ref=%s — skipping double-record",
-                    paystack_ref,
+            paystack_ref = note.split(":")[-1].strip() or None
+
+        try:
+            with transaction.atomic():
+                # Lock the row so two simultaneous payments can't overwrite each other
+                fee = (
+                    Fee.objects
+                    .select_for_update(of=("self",))
+                    .select_related("student", "student__school_class")
+                    .get(pk=pk)
                 )
-                return Response(FeeSerializer(fee).data)
 
-        old_balance = fee.balance
-        fee.paid += amount
-        fee.save()
+                if amount > fee.balance:
+                    return Response(
+                        {"error": f"Amount exceeds outstanding balance of {fee.balance}"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
-        txn = PaymentTransaction.objects.create(
-            fee         = fee,
-            amount      = amount,
-            note        = note,
-            recorded_by = request.user if request.user.is_authenticated else None,
-        )
+                if paystack_ref and PaymentTransaction.objects.filter(
+                    Q(reference=paystack_ref) | Q(note__icontains=paystack_ref)
+                ).exists():
+                    logger.info("pay(): duplicate Paystack ref=%s — skipping", paystack_ref)
+                    return Response(FeeSerializer(fee).data)
 
-        log_action(
-            request=request,
-            action=AuditLog.Action.PAYMENT_PROCESSED,
-            module=AuditLog.Module.FEES,
-            resource_type="PaymentTransaction",
-            resource_id=txn.id,
-            resource_repr=f"Payment: {fee.student.full_name} — {fee.get_term_display()}",
-            previous_value={"balance": str(old_balance)},
-            new_value={"balance": str(fee.balance), "amount_paid": str(amount)},
-            description=note or "",
-        )
+                old_balance = fee.balance
+                fee.paid += amount
+                fee.save()
 
-        # ── Send SMS ──────────────────────────────────────────────────────────
-        parent_phone = fee.student.parent_phone
-        if parent_phone:
-            message = fee_payment_received(
-                parent_name    = fee.student.parent_name or "Parent/Guardian",
-                student_name   = fee.student.full_name,
-                student_class  = str(fee.student.school_class) if fee.student.school_class else "N/A",
-                amount_paid    = amount,
-                balance        = fee.balance,
-                term           = fee.get_term_display(),
-                transaction_id = txn.id,
-            )
-            try:
-                TermiiSMSService().send(phone=parent_phone, message=message)
-                logger.info(
-                    "SMS sent for student %s | txn=%s",
-                    fee.student.full_name, txn.id,
+                txn = PaymentTransaction.objects.create(
+                    fee         = fee,
+                    amount      = amount,
+                    note        = note,
+                    reference   = paystack_ref,
+                    recorded_by = request.user,
                 )
-            except TermiiSMSError as e:
-                logger.error(
-                    "SMS failed for student %s: %s",
-                    fee.student.full_name, e,
+
+                log_action(
+                    request=request,
+                    action=AuditLog.Action.PAYMENT_PROCESSED,
+                    module=AuditLog.Module.FEES,
+                    resource_type="PaymentTransaction",
+                    resource_id=txn.id,
+                    resource_repr=f"Payment: {fee.student.full_name} — {fee.get_term_display()}",
+                    previous_value={"balance": str(old_balance)},
+                    new_value={"balance": str(fee.balance), "amount_paid": str(amount)},
+                    description=note or "",
                 )
-        else:
-            logger.warning(
-                "No parent phone for student %s — SMS skipped",
-                fee.student.full_name,
-            )
+        except IntegrityError:
+            return Response({"error": "This payment reference was already recorded."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        send_payment_sms(fee, amount, txn.id)
 
         return Response({
             **FeeSerializer(fee).data,
             "transaction_id": txn.id,
+        })
+
+    # ── Void a wrong payment (and optionally replace it) ──────────────────────
+
+    @action(detail=True, methods=["post"], url_path="correct-payment")
+    def correct_payment(self, request, pk=None):
+        """
+        Body: { transaction_id, reason, amount? }
+        - amount omitted  -> payment is just cancelled (voided)
+        - amount provided -> payment is voided and replaced with the new amount
+        The original row is never deleted: it is flagged void and linked to
+        its replacement, so the audit trail stays intact.
+        """
+        self.get_object()  # permission / 404 check
+
+        txn_id     = request.data.get("transaction_id")
+        reason     = (request.data.get("reason") or "").strip()
+        new_amount = request.data.get("amount")
+
+        if not txn_id or not reason:
+            return Response(
+                {"error": "transaction_id and reason are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if new_amount in (None, ""):
+            new_amount = None
+        else:
+            try:
+                new_amount = Decimal(str(new_amount))
+            except Exception:
+                return Response({"error": "amount must be a number"}, status=status.HTTP_400_BAD_REQUEST)
+            if new_amount <= 0:
+                return Response({"error": "amount must be greater than 0"},
+                                status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            fee = (
+                Fee.objects
+                .select_for_update(of=("self",))
+                .select_related("student", "student__school_class")
+                .get(pk=pk)
+            )
+
+            try:
+                old_txn = fee.transactions.select_for_update().get(pk=txn_id, is_void=False)
+            except PaymentTransaction.DoesNotExist:
+                return Response(
+                    {"error": "Transaction not found or already voided"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            if not can_correct_payment(request.user, old_txn):
+                return Response(
+                    {"error": "You can only correct your own payments within 24 hours. "
+                              "Ask an administrator to make this correction."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            if is_paystack_txn(old_txn):
+                return Response(
+                    {"error": "Online (Paystack) payments can't be voided here. "
+                              "Refund them through Paystack instead."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            old_paid   = fee.paid
+            old_amount = old_txn.amount
+            paid_after_void = max(Decimal("0"), fee.paid - old_amount)
+
+            # Validate the replacement BEFORE writing anything
+            if new_amount is not None:
+                outstanding = fee.total_amount - paid_after_void
+                if new_amount > outstanding:
+                    return Response(
+                        {"error": f"Amount exceeds outstanding balance of {outstanding}"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            # 1) Void the wrong payment (row is kept)
+            old_txn.is_void     = True
+            old_txn.voided_at   = timezone.now()
+            old_txn.voided_by   = request.user
+            old_txn.void_reason = reason
+            old_txn.save()
+            fee.paid = paid_after_void
+
+            # 2) Optionally record the correct payment
+            new_txn = None
+            if new_amount is not None:
+                fee.paid += new_amount
+                new_txn = PaymentTransaction.objects.create(
+                    fee         = fee,
+                    amount      = new_amount,
+                    note        = f"Correction of receipt #{old_txn.id}: {reason}",
+                    recorded_by = request.user,
+                )
+                old_txn.replaced_by = new_txn
+                old_txn.save(update_fields=["replaced_by"])
+
+            fee.save()  # recalculates balance
+
+            log_action(
+                request=request,
+                action=AuditLog.Action.PAYMENT_PROCESSED,
+                module=AuditLog.Module.FEES,
+                resource_type="PaymentTransaction",
+                resource_id=old_txn.id,
+                resource_repr=f"Payment VOIDED: {fee.student.full_name} — {fee.get_term_display()}",
+                previous_value={"paid": str(old_paid), "voided_amount": str(old_amount)},
+                new_value={
+                    "paid": str(fee.paid),
+                    "replacement_amount": str(new_amount) if new_amount is not None else None,
+                    "replacement_txn": new_txn.id if new_txn else None,
+                },
+                description=reason,
+            )
+
+            # Capture values for the SMS (sent only after the DB commit succeeds)
+            student    = fee.student
+            term_label = fee.get_term_display()
+            balance    = fee.balance
+            old_id     = old_txn.id
+            new_id     = new_txn.id if new_txn else None
+
+            transaction.on_commit(
+                lambda: send_correction_sms(
+                    student, term_label, balance, old_id, old_amount, new_id, new_amount,
+                )
+            )
+
+        # Re-read with prefetched transactions so the response is fresh
+        fee = self.get_queryset().get(pk=pk)
+        return Response({
+            **FeeSerializer(fee).data,
+            "voided_transaction_id": old_id,
+            "transaction_id": new_id,
         })
 
     # ── List payment transactions for a fee record ────────────────────────────
@@ -320,20 +534,24 @@ class FeeViewSet(ModelViewSet):
     @action(detail=True, methods=["get"], url_path="transactions")
     def transactions(self, request, pk=None):
         fee          = self.get_object()
-        transactions = fee.transactions.select_related("recorded_by").all()
+        transactions = fee.transactions.select_related("recorded_by", "voided_by").all()
 
         data = [
             {
                 "id":          t.id,
                 "amount":      str(t.amount),
                 "note":        t.note,
-                "recorded_by": (
-                    t.recorded_by.get_full_name() or t.recorded_by.username
-                    if t.recorded_by else "System"
-                ),
+                "recorded_by": user_display(t.recorded_by),
                 "created_at":  t.created_at.strftime("%d %b %Y, %I:%M %p"),
                 "date":        t.created_at.strftime("%d %b %Y"),
                 "time":        t.created_at.strftime("%I:%M %p"),
+                "is_void":     t.is_void,
+                "void_reason": t.void_reason,
+                "voided_by":   user_display(t.voided_by) if t.voided_by else None,
+                "replaced_by": t.replaced_by_id,
+                "can_correct": (not t.is_void)
+                               and (not is_paystack_txn(t))
+                               and can_correct_payment(request.user, t),
             }
             for t in transactions
         ]
@@ -420,16 +638,19 @@ class FeeViewSet(ModelViewSet):
             )
 
         try:
+            year = parse_year(request.data.get("year"), default=timezone.now().year)
+        except ValueError:
+            return Response({"error": "year must be a valid year"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
             student = Student.objects.get(id=student_id)
         except Student.DoesNotExist:
-            return Response(
-                {"error": "Student not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            return Response({"error": "Student not found"}, status=status.HTTP_404_NOT_FOUND)
 
         fee, is_new = Fee.objects.get_or_create(
             student=student,
             term=term,
+            year=year,
             defaults={
                 "amount":        to_decimal(amount),
                 "book_user_fee": to_decimal(request.data.get("book_user_fee")),
@@ -452,7 +673,7 @@ class FeeViewSet(ModelViewSet):
             module=AuditLog.Module.FEES,
             resource_type="Fee",
             resource_id=fee.id,
-            resource_repr=f"Fee: {student.full_name} — {fee.get_term_display()}",
+            resource_repr=f"Fee: {student.full_name} — {fee.get_term_display()} {fee.year}",
             new_value={"amount": str(fee.amount), "arrears": str(fee.arrears)},
         )
 
@@ -476,56 +697,55 @@ class FeeViewSet(ModelViewSet):
             )
 
         try:
+            year = parse_year(request.data.get("year"), default=timezone.now().year)
+        except ValueError:
+            return Response({"error": "year must be a valid year"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
             amount        = Decimal(str(amount))
             book_user_fee = to_decimal(request.data.get("book_user_fee"))
             workbook_fee  = to_decimal(request.data.get("workbook_fee"))
-        except (TypeError, ValueError):
-            return Response(
-                {"error": "Fee values must be numbers"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        except Exception:
+            return Response({"error": "Fee values must be numbers"}, status=status.HTTP_400_BAD_REQUEST)
 
         if amount <= 0:
-            return Response(
-                {"error": "amount must be greater than 0"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": "amount must be greater than 0"}, status=status.HTTP_400_BAD_REQUEST)
 
         students = Student.objects.filter(school_class_id=school_class)
         if not students.exists():
-            return Response(
-                {"error": "No students found for this class"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            return Response({"error": "No students found for this class"},
+                            status=status.HTTP_404_NOT_FOUND)
 
         created = updated = 0
 
-        for student in students:
-            fee, is_new = Fee.objects.get_or_create(
-                student=student,
-                term=term,
-                defaults={
-                    "amount":        amount,
-                    "book_user_fee": book_user_fee,
-                    "workbook_fee":  workbook_fee,
-                    "paid":          Decimal("0"),
-                },
-            )
-            if not is_new:
-                fee.amount        = amount
-                fee.book_user_fee = book_user_fee
-                fee.workbook_fee  = workbook_fee
-                fee.save()
-                updated += 1
-            else:
-                created += 1
+        with transaction.atomic():
+            for student in students:
+                fee, is_new = Fee.objects.get_or_create(
+                    student=student,
+                    term=term,
+                    year=year,
+                    defaults={
+                        "amount":        amount,
+                        "book_user_fee": book_user_fee,
+                        "workbook_fee":  workbook_fee,
+                        "paid":          Decimal("0"),
+                    },
+                )
+                if not is_new:
+                    fee.amount        = amount
+                    fee.book_user_fee = book_user_fee
+                    fee.workbook_fee  = workbook_fee
+                    fee.save()
+                    updated += 1
+                else:
+                    created += 1
 
         log_action(
             request=request,
             action=AuditLog.Action.FEE_UPDATE,
             module=AuditLog.Module.FEES,
             resource_type="Fee",
-            resource_repr=f"Bulk fee assignment: class {school_class}, {term}",
+            resource_repr=f"Bulk fee assignment: class {school_class}, {term} {year}",
             new_value={"amount": str(amount), "created": created, "updated": updated},
             description=f"{created} created, {updated} updated",
         )
@@ -540,24 +760,15 @@ class FeeViewSet(ModelViewSet):
         arrears = request.data.get("arrears")
 
         if arrears is None:
-            return Response(
-                {"error": "arrears is required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": "arrears is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             arrears = Decimal(str(arrears))
-        except (TypeError, ValueError):
-            return Response(
-                {"error": "arrears must be a number"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        except Exception:
+            return Response({"error": "arrears must be a number"}, status=status.HTTP_400_BAD_REQUEST)
 
         if arrears < 0:
-            return Response(
-                {"error": "arrears cannot be negative"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": "arrears cannot be negative"}, status=status.HTTP_400_BAD_REQUEST)
 
         old_arrears = fee.arrears
         fee.arrears = arrears
@@ -589,10 +800,24 @@ class FeeViewSet(ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        fees = Fee.objects.filter(
-            student__school_class_id=school_class,
-            term=term,
-        ).select_related("student")
+        try:
+            year = parse_year(request.query_params.get("year"), default=timezone.now().year)
+        except ValueError:
+            return Response({"error": "year must be a valid year"}, status=status.HTTP_400_BAD_REQUEST)
+
+        fees = (
+            Fee.objects
+            .filter(school_class_id=school_class, term=term, year=year)
+            .select_related("student")
+            .prefetch_related(
+                Prefetch(
+                    "transactions",
+                    queryset=PaymentTransaction.objects
+                        .select_related("recorded_by", "voided_by")
+                        .order_by("-created_at"),
+                )
+            )
+        )
 
         agg = fees.aggregate(
             total_fees     = Sum("amount"),
@@ -616,7 +841,7 @@ class FeeViewSet(ModelViewSet):
 
         recent_payments = (
             PaymentTransaction.objects
-            .filter(fee__in=fees)
+            .filter(fee__in=fees, is_void=False)
             .select_related("fee__student", "recorded_by")
             .order_by("-created_at")[:20]
         )
@@ -626,10 +851,7 @@ class FeeViewSet(ModelViewSet):
                 "student_name": t.fee.student.full_name,
                 "amount":       str(t.amount),
                 "note":         t.note,
-                "recorded_by":  (
-                    t.recorded_by.get_full_name() or t.recorded_by.username
-                    if t.recorded_by else "System"
-                ),
+                "recorded_by":  user_display(t.recorded_by),
                 "created_at":   t.created_at.strftime("%d %b %Y, %I:%M %p"),
             }
             for t in recent_payments
@@ -651,25 +873,43 @@ class FeeViewSet(ModelViewSet):
             "records":         FeeSerializer(fees, many=True).data,
         })
 
-    # ── Preview fees to delete for a class + term + year ─────────────────────
+    # ── Preview fees to delete for a class (+ optional term) + year ──────────
 
     @action(detail=False, methods=["get"], url_path="delete-preview")
     def delete_preview(self, request):
         school_class = request.query_params.get("school_class")
-        term         = request.query_params.get("term")
+        term         = request.query_params.get("term")   # optional ("All Terms")
         year         = request.query_params.get("year")
 
-        if not school_class or not term or not year:
+        if not school_class or not year:
             return Response(
-                {"error": "school_class, term and year are required"},
+                {"error": "school_class and year are required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        try:
+            year = parse_year(year)
+        except ValueError:
+            return Response({"error": "year must be a valid year"}, status=status.HTTP_400_BAD_REQUEST)
+
         fees = Fee.objects.filter(
-            student__school_class_id=school_class,
-            term=term,
-            created_at__year=year,
+            school_class_id=school_class,
+            year=year,
         ).select_related("student")
+        if term:
+            fees = fees.filter(term=term)
+
+        totals = fees.aggregate(
+            total_billed=Sum("amount"),
+            total_books=Sum("book_user_fee"),
+            total_wb=Sum("workbook_fee"),
+            total_arrears=Sum("arrears"),
+            total_paid=Sum("paid"),
+        )
+        total_billed = (
+            (totals["total_billed"]  or 0) + (totals["total_books"]   or 0) +
+            (totals["total_wb"]      or 0) + (totals["total_arrears"] or 0)
+        )
 
         data = [
             {
@@ -678,6 +918,7 @@ class FeeViewSet(ModelViewSet):
                 "admission_number": fee.student.admission_number,
                 "student_name":     fee.student.full_name,
                 "term":             fee.term,
+                "year":             fee.year,
                 "amount":           str(fee.amount),
                 "total_amount":     str(fee.total_amount),
                 "paid":             str(fee.paid),
@@ -687,39 +928,57 @@ class FeeViewSet(ModelViewSet):
             for fee in fees
         ]
 
-        return Response({"count": len(data), "fees": data}, status=status.HTTP_200_OK)
+        return Response(
+            {
+                "count":        len(data),
+                "total_billed": float(total_billed),
+                "total_paid":   float(totals["total_paid"] or 0),
+                "fees":         data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
-    # ── Delete fees for a class + term + year ─────────────────────────────────
+    # ── Delete fees for a class (+ optional term) + year ─────────────────────
 
     @action(detail=False, methods=["delete"], url_path="delete-class-fees")
     def delete_class_fees(self, request):
         school_class = request.query_params.get("school_class")
-        term         = request.query_params.get("term")
+        term         = request.query_params.get("term")   # optional ("All Terms")
         year         = request.query_params.get("year")
 
-        if not school_class or not term or not year:
+        if not school_class or not year:
             return Response(
-                {"error": "school_class, term and year are required"},
+                {"error": "school_class and year are required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        deleted_count, _ = Fee.objects.filter(
-            student__school_class_id=school_class,
-            term=term,
-            created_at__year=year,
-        ).delete()
+        try:
+            year = parse_year(year)
+        except ValueError:
+            return Response({"error": "year must be a valid year"}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = Fee.objects.filter(
+            school_class_id=school_class,
+            year=year,
+        )
+        if term:
+            qs = qs.filter(term=term)
+
+        paid_total = qs.aggregate(s=Sum("paid"))["s"] or 0
+        deleted_count, _ = qs.delete()
 
         log_action(
             request=request,
             action=AuditLog.Action.DELETE,
             module=AuditLog.Module.FEES,
             resource_type="Fee",
-            resource_repr=f"Bulk delete: class {school_class}, {term}, {year}",
-            description=f"{deleted_count} fee record(s) deleted",
+            resource_repr=f"Bulk delete: class {school_class}, {term or 'all terms'}, {year}",
+            previous_value={"recorded_payments_total": str(paid_total)},
+            description=f"{deleted_count} record(s) deleted (incl. cascaded payment rows)",
         )
 
         return Response(
-            {"detail": f"{deleted_count} fee record(s) deleted successfully."},
+            {"detail": f"{deleted_count} record(s) deleted successfully."},
             status=status.HTTP_200_OK,
         )
 

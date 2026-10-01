@@ -2,8 +2,15 @@ from rest_framework import serializers
 from apps.fees.models import Fee, PaymentTransaction
 
 
+def _user_name(user):
+    if not user:
+        return None
+    return user.get_full_name() or user.username
+
+
 class PaymentTransactionSerializer(serializers.ModelSerializer):
     recorded_by_name   = serializers.SerializerMethodField()
+    voided_by_name     = serializers.SerializerMethodField()
     student_name       = serializers.SerializerMethodField()
     admission_number   = serializers.SerializerMethodField()
     created_at_display = serializers.SerializerMethodField()
@@ -21,13 +28,24 @@ class PaymentTransactionSerializer(serializers.ModelSerializer):
             "note",
             "created_at",
             "created_at_display",
+            "is_void",
+            "voided_at",
+            "voided_by_name",
+            "void_reason",
+            "replaced_by",
         ]
-        read_only_fields = ["created_at"]
+        # Everything audit-related is read-only: it can only change through
+        # the correct-payment endpoint.
+        read_only_fields = [
+            "created_at", "is_void", "voided_at", "voided_by_name",
+            "void_reason", "replaced_by",
+        ]
 
     def get_recorded_by_name(self, obj):
-        if obj.recorded_by:
-            return obj.recorded_by.get_full_name() or obj.recorded_by.username
-        return None
+        return _user_name(obj.recorded_by)
+
+    def get_voided_by_name(self, obj):
+        return _user_name(obj.voided_by)
 
     def get_student_name(self, obj):
         return obj.fee.student.full_name
@@ -44,6 +62,7 @@ class FeeSerializer(serializers.ModelSerializer):
     admission_number = serializers.SerializerMethodField()
     is_fully_paid    = serializers.SerializerMethodField()
     total_amount     = serializers.SerializerMethodField()
+    class_name       = serializers.SerializerMethodField()
     transactions     = PaymentTransactionSerializer(many=True, read_only=True)
 
     class Meta:
@@ -54,6 +73,9 @@ class FeeSerializer(serializers.ModelSerializer):
             "student_name",
             "admission_number",
             "term",
+            "year",
+            "school_class",
+            "class_name",
             "amount",
             "book_user_fee",
             "workbook_fee",
@@ -66,7 +88,10 @@ class FeeSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["balance", "created_at", "updated_at"]
+        # `paid` is read-only so nobody can PATCH it directly and change money
+        # without a transaction record. Payments go through /pay/ and
+        # /correct-payment/ only.
+        read_only_fields = ["paid", "balance", "school_class", "created_at", "updated_at"]
 
     def get_student_name(self, obj):
         return obj.student.full_name
@@ -79,3 +104,7 @@ class FeeSerializer(serializers.ModelSerializer):
 
     def get_total_amount(self, obj):
         return obj.total_amount
+
+    def get_class_name(self, obj):
+        cls = obj.school_class or obj.student.school_class
+        return cls.name if cls else None

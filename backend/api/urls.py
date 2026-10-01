@@ -26,6 +26,7 @@ from api.views.report_pdf_view import StudentReportPDFView
 from api.views.bill_pdf_view import StudentFeeBillPDFView, ClassFeeBillPDFView
 from api.views.receipt_pdf_view import PaymentReceiptPDFView
 from api.views.admission_form_pdf_view import AdmissionFormPDFView
+from api.views.defaulters_pdf_view import DefaultersPDFView
 from api.views.accounts_view import (
     AccountsDashboardView,
     IncomeLedgerView,
@@ -69,6 +70,7 @@ urlpatterns = [
     path("fees/bill/student/<int:student_id>/", StudentFeeBillPDFView.as_view(), name="student-bill-pdf"),
     path("fees/bill/class/", ClassFeeBillPDFView.as_view(), name="class-bill-pdf"),
     path("fees/receipt/<int:transaction_id>/", PaymentReceiptPDFView.as_view(), name="payment-receipt-pdf"),
+    path("accounts/defaulters/pdf/", DefaultersPDFView.as_view(), name="defaulters-pdf"),
     path("report/student/<int:student_id>/", StudentReportView.as_view(), name="student-report"),
     path("report/student/<int:student_id>/pdf/", StudentReportPDFView.as_view(), name="student-report-pdf"),
     path("reports/<int:report_id>/send-whatsapp/", SendWhatsAppReportView.as_view(), name="send-whatsapp-report"),
