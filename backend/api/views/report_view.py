@@ -29,6 +29,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.results.models import Result, Report
+from apps.results.scoring import result_scores
 from apps.students.models import Student
 from apps.attendance.models import Attendance
 from apps.attendance.services import attendance_counts
@@ -86,25 +87,8 @@ def _parse_year(raw) -> tuple[int | None, str | None]:
 
 
 def _computed_score(result: Result) -> float:
-    """
-    Returns the subject total computed live from reopen+ca+exams, rather
-    than trusting the persisted `score` column.
-
-    Result.save() is supposed to guarantee score == reopen+ca+exams on
-    every write, but a handful of production rows have been found with a
-    stale/mismatched `score` (most likely from a raw-SQL data fix, an old
-    pre-migration formula, or a duplicate row for the same
-    student+subject+term+year under a different school_class — the model's
-    unique_together does not include school_class, so that's possible).
-
-    Recomputing here means the report/PDF can never display a total that
-    doesn't match the visible reopen/ca/exams breakdown, regardless of what
-    ended up in the database. This does NOT fix the underlying bad row —
-    run a data-repair pass (iterate Result.objects.all() and call .save()
-    on any row where stored score != reopen+ca+exams) to fix those at
-    the source.
-    """
-    return round((result.reopen or 0.0) + (result.ca or 0.0) + (result.exams or 0.0), 1)
+    """Return the live score from the single source of truth for scoring."""
+    return result_scores(result)["total"]
 
 
 def _fetch_report(student, term: str, year: int):

@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from apps.results.models import Result
+from apps.results.scoring import result_level, result_scores
 from api.views.grades import get_grade_and_remark, get_thresholds
 
 
@@ -9,8 +10,13 @@ class ResultSerializer(serializers.ModelSerializer):
     subject_name = serializers.SerializerMethodField()
     class_name   = serializers.SerializerMethodField()
 
-    # Grade and remark are computed from score + the student's class level.
-    # Exposing them here removes the duplicated grading logic in the frontend.
+    level      = serializers.SerializerMethodField()
+    exam_only  = serializers.SerializerMethodField()
+    sba_raw    = serializers.SerializerMethodField()
+    sba        = serializers.SerializerMethodField()
+    exam_score = serializers.SerializerMethodField()
+
+    # Grade and remark are computed from the live total + the student's class level.
     grade  = serializers.SerializerMethodField()
     remark = serializers.SerializerMethodField()
 
@@ -29,25 +35,31 @@ class ResultSerializer(serializers.ModelSerializer):
             "reopen",
             "ca",
             "exams",
-            "score",            # computed in model.save(), read-only
-            "grade",            # computed here from score + level
-            "remark",           # computed here from score + level
+            "level",
+            "exam_only",
+            "sba_raw",
+            "sba",
+            "exam_score",
+            "score",
+            "grade",
+            "remark",
             "subject_position",
             "created_at",
         ]
-        read_only_fields = ["score", "subject_position", "created_at", "grade", "remark"]
+        read_only_fields = [
+            "score", "subject_position", "created_at", "grade", "remark",
+            "level", "exam_only", "sba_raw", "sba", "exam_score",
+        ]
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
     def _thresholds(self, obj):
-        level = (
-            getattr(obj.student.school_class, "level", "basic_7_9")
-            if obj.student and obj.student.school_class
-            else "basic_7_9"
-        )
-        return get_thresholds(level)
+        return get_thresholds(result_level(obj))
+
+    def _scores(self, obj):
+        return result_scores(obj)
 
     # ------------------------------------------------------------------
     # Field methods
@@ -60,13 +72,27 @@ class ResultSerializer(serializers.ModelSerializer):
         return obj.subject.name if obj.subject else "-"
 
     def get_class_name(self, obj):
-        # FIX: was returning "-." (with a stray period)
         return obj.school_class.name if obj.school_class else "-"
 
+    def get_level(self, obj):
+        return result_level(obj)
+
+    def get_exam_only(self, obj):
+        return self._scores(obj)["exam_only"]
+
+    def get_sba_raw(self, obj):
+        return self._scores(obj)["sba_raw"]
+
+    def get_sba(self, obj):
+        return self._scores(obj)["sba"]
+
+    def get_exam_score(self, obj):
+        return self._scores(obj)["exam_score"]
+
     def get_grade(self, obj):
-        grade, _ = get_grade_and_remark(obj.score or 0, self._thresholds(obj))
+        grade, _ = get_grade_and_remark(self._scores(obj)["total"], self._thresholds(obj))
         return grade
 
     def get_remark(self, obj):
-        _, remark = get_grade_and_remark(obj.score or 0, self._thresholds(obj))
+        _, remark = get_grade_and_remark(self._scores(obj)["total"], self._thresholds(obj))
         return remark

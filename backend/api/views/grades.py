@@ -30,6 +30,7 @@ GRADE_THRESHOLDS_B16 = [
     (80, "B",  "VERY GOOD"),
     (60, "C",  "GOOD"),
     (55, "D",  "HIGH AVERAGE"),
+    (50, "E",  "AVERAGE"),
     (45, "E2", "BELOW AVERAGE"),
     (40, "E3", "LOW"),
     (35, "E4", "LOWER"),

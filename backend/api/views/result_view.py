@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
 from apps.results.models import Result
+from apps.results.scoring import result_scores
 from api.serializers.result_serializer import ResultSerializer
 from .grades import get_grade_and_remark, get_thresholds, get_overall_grade
 
@@ -41,27 +42,8 @@ def get_current_year() -> int:
 # ---------------------------------------------------------------------------
 
 def _computed_score(result: Result) -> float:
-    """
-    Returns the subject total computed live from reopen+ca+exams, rather
-    than trusting the persisted `score` column.
-
-    Result.save() is supposed to guarantee score == reopen+ca+exams on
-    every write, but a handful of production rows have been found with a
-    stale/mismatched `score` (most likely from a raw-SQL data fix, an old
-    pre-migration formula, or a duplicate row for the same
-    student+subject+term+year under a different school_class — the model's
-    unique_together does not include school_class, so that's possible).
-
-    This mirrors _computed_score() in report_view.py / pdf_view.py.
-    Ranking (subject positions and the class summary) has to use the same
-    source of truth as the per-student report, or a stale row can make a
-    student's rank and the total shown on their report disagree.
-
-    This does NOT fix the underlying bad row — run a data-repair pass
-    (iterate Result.objects.all() and call .save() on any row where
-    stored score != reopen+ca+exams) to fix those at the source.
-    """
-    return round((result.reopen or 0.0) + (result.ca or 0.0) + (result.exams or 0.0), 1)
+    """Return the live score from the single source of truth for scoring."""
+    return result_scores(result)["total"]
 
 
 def recompute_subject_positions(subject_id, term, school_class_id, year):

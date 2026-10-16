@@ -36,6 +36,7 @@ const GRADE_REMARK = {
   "B":  { label: "VERY GOOD",     color: "#059669" },
   "C":  { label: "GOOD",          color: "#0284c7" },
   "D":  { label: "HIGH AVERAGE",  color: "#0891b2" },
+  "E":  { label: "AVERAGE",       color: "#ca8a04" },
   "E2": { label: "BELOW AVERAGE", color: "#ea580c" },
   "E3": { label: "LOW",           color: "#dc2626" },
   "E4": { label: "LOWER",         color: "#b91c1c" },
@@ -58,6 +59,7 @@ const GRADE_SCALE_B16 = [
   { range: "80–89",  grade: "B",  remark: "VERY GOOD"  },
   { range: "60–79",  grade: "C",  remark: "GOOD"       },
   { range: "55–59",  grade: "D",  remark: "HIGH AVG"   },
+  { range: "50–54",  grade: "E",  remark: "AVERAGE"    },
   { range: "45–49",  grade: "E2", remark: "BELOW AVG"  },
   { range: "40–44",  grade: "E3", remark: "LOW"        },
   { range: "35–39",  grade: "E4", remark: "LOWER"      },
@@ -84,8 +86,9 @@ const computeGrade = (score, level = "basic_7_9") => {
   }
   if (score >= 90) return "A";  if (score >= 80) return "B";
   if (score >= 60) return "C";  if (score >= 55) return "D";
-  if (score >= 45) return "E2"; if (score >= 40) return "E3";
-  if (score >= 35) return "E4"; return "E5";
+  if (score >= 50) return "E"; if (score >= 45) return "E2";
+  if (score >= 40) return "E3"; if (score >= 35) return "E4";
+  return "E5";
 };
 
 const getStudentName = (s) =>

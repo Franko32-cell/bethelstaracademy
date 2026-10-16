@@ -20,6 +20,7 @@ export const GRADE_REMARK = {
   "B":  { label: "VERY GOOD",     bg: "#d1fae5", color: "#065f46" },
   "C":  { label: "GOOD",          bg: "#dbeafe", color: "#1e40af" },
   "D":  { label: "HIGH AVERAGE",  bg: "#cffafe", color: "#164e63" },
+  "E":  { label: "AVERAGE",       bg: "#fef9c3", color: "#854d0e" },
   "E2": { label: "BELOW AVERAGE", bg: "#ffedd5", color: "#9a3412" },
   "E3": { label: "LOW",           bg: "#fee2e2", color: "#991b1b" },
   "E4": { label: "LOWER",         bg: "#fecaca", color: "#7f1d1d" },
