@@ -31,6 +31,12 @@ export const fetchStudentAttendance = async (studentId, term) => {
   return r.data.results ?? r.data;
 };
 
+// Server-side totals: weekends/holidays ignored, excused days left out.
+export const fetchStudentAttendanceSummary = async (studentId, term) => {
+  const r = await API.get(`/attendance/summary/?student=${studentId}&term=${term}`);
+  return r.data;
+};
+
 // ── Character assessment ──────────────────────────────────────────────────
 
 export const fetchStudentCharAssessment = async (studentId, admissionNumber, term) => {

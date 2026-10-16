@@ -153,6 +153,7 @@ const TeacherPortal = () => {
       present: values.filter((status) => status === "present").length,
       absent:  values.filter((status) => status === "absent").length,
       late:    values.filter((status) => status === "late").length,
+      excused: values.filter((status) => status === "excused").length,
     };
   }, [attendance.attendance]);
 
@@ -466,6 +467,9 @@ const TeacherPortal = () => {
                 selectedClassName={teacherData.selectedClassName}
                 attDate={attDate}
                 attendance={attendance.attendance}
+                dayInfo={attendance.dayInfo}
+                recorded={attendance.recorded}
+                classId={teacherData.selectedClass}
                 saving={attendance.saving}
                 onToggle={attendance.toggle}
                 onSave={() => attendance.save(

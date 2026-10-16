@@ -33,6 +33,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.attendance.models import Attendance
+from apps.attendance.services import attendance_counts, attendance_counts_by, count_school_days
 from apps.classes.models import SchoolClass
 from apps.results.models import Result
 from apps.fees.models import Fee
@@ -99,34 +100,21 @@ class AnalyticsDashboardView(APIView):
 
         # ── Attendance rate (this term/year) ────────────────────────────────
         att_qs = Attendance.objects.filter(term=term, year=year)
-        att_agg = att_qs.aggregate(
-            total=Count("id"),
-            present_or_late=Count("id", filter=Q(status__in=["present", "late"])),
-        )
-        attendance_total = att_agg["total"] or 0
-        attendance_present = att_agg["present_or_late"] or 0
-        attendance_rate = (
-            round(attendance_present / attendance_total * 100, 1)
-            if attendance_total
-            else None
-        )
+        att_totals = attendance_counts(att_qs, digits=1)
+        attendance_total = att_totals["counted_days"]
+        attendance_rate = att_totals["percentage"]
 
-        attendance_by_class = list(
-            att_qs.values("school_class__id", "school_class__name")
-            .annotate(
-                total=Count("id"),
-                present_or_late=Count("id", filter=Q(status__in=["present", "late"])),
-            )
-            .order_by("school_class__name")
-        )
-        for row in attendance_by_class:
-            row["class_id"] = row.pop("school_class__id")
-            row["class_name"] = row.pop("school_class__name") or "Unassigned"
-            row["rate"] = (
-                round(row["present_or_late"] / row["total"] * 100, 1)
-                if row["total"]
-                else None
-            )
+        attendance_by_class = []
+        for row in attendance_counts_by(att_qs, "school_class__id", "school_class__name", digits=1):
+            attendance_by_class.append({
+                "class_id": row["school_class__id"],
+                "class_name": row["school_class__name"] or "Unassigned",
+                "total": row["counted_days"],
+                "present_or_late": row["attended"],
+                "excused": row["excused"],
+                "rate": row["percentage"],
+            })
+        attendance_by_class.sort(key=lambda r: r["class_name"])
 
         # ── Academic performance (this term/year) ───────────────────────────
         result_qs = Result.objects.filter(term=term, year=year)
@@ -287,30 +275,26 @@ class AttendanceDetailView(APIView):
             date__lte=date_to,
         )
 
-        overall = qs.aggregate(
-            total=Count("id"),
-            present_or_late=Count("id", filter=Q(status__in=["present", "late"])),
-        )
-        total = overall["total"] or 0
-        present_or_late = overall["present_or_late"] or 0
-        rate = round(present_or_late / total * 100, 1) if total else None
+        # Non-school days (weekends / holidays) and excused absences are left
+        # out of the rate — see apps/attendance/services.py.
+        overall = attendance_counts(qs, digits=1)
+        total = overall["counted_days"]
+        present_or_late = overall["attended"]
+        rate = overall["percentage"]
 
-        daily_rows = list(
-            qs.values("date")
-            .annotate(
-                total=Count("id"),
-                present=Count("id", filter=Q(status="present")),
-                late=Count("id", filter=Q(status="late")),
-                absent=Count("id", filter=Q(status="absent")),
-            )
-            .order_by("date")
-        )
-        for row in daily_rows:
-            day_present_or_late = row["present"] + row["late"]
-            row["rate"] = (
-                round(day_present_or_late / row["total"] * 100, 1) if row["total"] else None
-            )
-            row["date"] = row["date"].isoformat()
+        daily_rows = []
+        for row in attendance_counts_by(qs, "date", digits=1):
+            daily_rows.append({
+                "date": row["date"].isoformat(),
+                "total": row["counted_days"],
+                "present": row["present"],
+                "late": row["late"],
+                "absent": row["absent"],
+                "excused": row["excused"],
+                "rate": row["percentage"],
+            })
+        daily_rows.sort(key=lambda r: r["date"])
+        school_days = count_school_days(date_from, min(date_to, timezone.localdate()))
 
         return Response(
             {
@@ -320,6 +304,8 @@ class AttendanceDetailView(APIView):
                 "date_to": date_to.isoformat(),
                 "total_records": total,
                 "present_or_late": present_or_late,
+                "excused": overall["excused"],
+                "school_days": school_days,
                 "rate": rate,
                 "daily": daily_rows,
             }

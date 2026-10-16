@@ -5,6 +5,7 @@
 // Each function throws on error so the caller can handle UI state (setError).
 
 import API from "../../services/api";
+import { apiError } from "../../utils/apiError";
 
 // ── Reference data ────────────────────────────────────────────────────────
 
@@ -55,7 +56,13 @@ export const saveAttendance = async (classId, date, students, attendanceMap) => 
   );
 
   const failed = results.filter((r) => r.status === "rejected").length;
-  return { saved: results.length - failed, failed };
+  const firstRejected = results.find((r) => r.status === "rejected");
+  return {
+    saved: results.length - failed,
+    failed,
+    // e.g. "Attendance cannot be recorded because this date is a non-school day."
+    firstError: firstRejected ? apiError(firstRejected.reason, "") : "",
+  };
 };
 
 // ── Results ───────────────────────────────────────────────────────────────

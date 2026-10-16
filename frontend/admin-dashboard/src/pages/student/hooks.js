@@ -53,7 +53,7 @@ export function useAllReports(studentId) {
 
 export function useStudentAttendance(studentId) {
   const [attendance, setAttendance] = useState([]);
-  const [stats, setStats] = useState({ present: 0, absent: 0, late: 0, total: 0 });
+  const [stats, setStats] = useState({ present: 0, absent: 0, late: 0, excused: 0, total: 0 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -62,13 +62,29 @@ export function useStudentAttendance(studentId) {
     try {
       const records = await svc.fetchStudentAttendance(studentId, term);
       setAttendance(records);
+      try {
+        const { totals } = await svc.fetchStudentAttendanceSummary(studentId, term);
+        setStats({
+          present: totals.present,
+          absent: totals.absent,
+          late: totals.late,
+          excused: totals.excused,
+          total: totals.counted_days,
+        });
+        return;
+      } catch {
+        // fall through to the local calculation below
+      }
       setStats(records.reduce((acc, rec) => {
-        acc.total++;
-        if (rec.status === "present") acc.present++;
-        else if (rec.status === "absent") acc.absent++;
-        else if (rec.status === "late") acc.late++;
+        // Excused days are tracked but kept out of `total` (the rate
+        // denominator): neither attended nor absent. Same rule as the
+        // backend (apps/attendance/services.py).
+        if (rec.status === "present") { acc.present++; acc.total++; }
+        else if (rec.status === "absent") { acc.absent++; acc.total++; }
+        else if (rec.status === "late") { acc.late++; acc.total++; }
+        else if (rec.status === "excused") { acc.excused++; }
         return acc;
-      }, { present: 0, absent: 0, late: 0, total: 0 }));
+      }, { present: 0, absent: 0, late: 0, excused: 0, total: 0 }));
     } catch {
       if (!quiet) setError("Could not load attendance records.");
     } finally {

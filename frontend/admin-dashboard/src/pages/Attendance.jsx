@@ -8,6 +8,11 @@ import {
   useState,
 } from "react";
 import API from "../services/api";
+import { checkSchoolDay } from "../services/schoolCalendarService";
+import { getAttendanceSummary } from "../services/attendanceService";
+import { apiError } from "../utils/apiError";
+import HolidayBanner from "../components/attendance/HolidayBanner";
+import AttendanceRecords from "../components/attendance/AttendanceRecords";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -18,8 +23,6 @@ import API from "../services/api";
 // fetchStudents or submitAttendance to avoid mismatches with settings values.
 const CURRENT_TERM = import.meta?.env?.VITE_CURRENT_TERM ?? "term3";
 const CURRENT_YEAR = Number(import.meta?.env?.VITE_CURRENT_YEAR ?? 2026);
-
-const MAX_SUMMARY_PAGES = 20;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -59,9 +62,29 @@ const STATUS_OPTIONS = [
     count: "text-amber-700 bg-amber-100",
     dot: "bg-amber-400",
   },
+  {
+    value: "excused",
+    label: "Excused",
+    icon: "✎",
+    active: "bg-sky-600 text-white ring-2 ring-sky-300 shadow-md",
+    inactive:
+      "bg-gray-100 text-gray-500 hover:bg-sky-50 hover:text-sky-700 hover:border-sky-200",
+    row: "bg-sky-50/60 border-l-4 border-sky-400",
+    count: "text-sky-700 bg-sky-100",
+    dot: "bg-sky-500",
+  },
 ];
 
-const TABS = ["Mark Attendance", "Student Summary"];
+const TABS = ["Mark Attendance", "Student Summary", "Records & Reports"];
+
+// Local-time YYYY-MM-DD (avoids UTC off-by-one when stepping dates).
+const toIso = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const shiftIso = (iso, delta) => {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + delta);
+  return toIso(d);
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -105,38 +128,6 @@ const formatDate = (dateStr) =>
     month: "long",
     day: "numeric",
   });
-
-const extractPath = (url) => {
-  try {
-    const parsed = new URL(url);
-    return parsed.pathname + parsed.search;
-  } catch {
-    return url;
-  }
-};
-
-const fetchAllPages = async (url) => {
-  const records = [];
-  let nextUrl = url;
-  let pageCount = 0;
-
-  while (nextUrl) {
-    if (pageCount >= MAX_SUMMARY_PAGES) {
-      console.warn(
-        `fetchAllPages: reached MAX_SUMMARY_PAGES (${MAX_SUMMARY_PAGES}). ` +
-          "Stopping early — increase the limit or use server-side aggregation."
-      );
-      break;
-    }
-    const res = await API.get(nextUrl);
-    const page = res.data;
-    records.push(...(page.results ?? page));
-    nextUrl = page.next ? extractPath(page.next) : null;
-    pageCount++;
-  }
-
-  return records;
-};
 
 // ─── Reducer ──────────────────────────────────────────────────────────────────
 
@@ -582,6 +573,8 @@ const Attendance = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [summarySearch, setSummarySearch] = useState("");
   const [confirmDialog, setConfirmDialog] = useState(null);
+  const [summaryMeta, setSummaryMeta] = useState(null);
+  const [dayInfo, setDayInfo] = useState(null);
 
   const {
     students,
@@ -600,6 +593,8 @@ const Attendance = () => {
     error,
     success,
   } = state;
+  const selectedDayInfo =
+    dayInfo?.date === selectedDate ? dayInfo : null;
 
   // ── Success auto-dismiss ───────────────────────────────────────────────────
 
@@ -688,34 +683,37 @@ const Attendance = () => {
     if (!classId) return;
     dispatch({ type: "FETCH_SUMMARY_START" });
     try {
-      const [classStudents, records] = await Promise.all([
+      // The server does the maths: weekends, holidays and closures are
+      // excluded from the school-day count, and excused days count neither
+      // for nor against a student. Scoped to the current term (reporting view).
+      const [classStudents, data] = await Promise.all([
         API.get(`/students/?school_class=${classId}`).then(
           (r) => r.data.results ?? r.data
         ),
-        // Summary intentionally keeps term+year so it stays scoped to the
-        // current academic term — this is a reporting view, not a live-edit
-        // view, so term-scoping is correct here.
-        fetchAllPages(
-          `/attendance/?school_class=${classId}&term=${CURRENT_TERM}&year=${CURRENT_YEAR}&page_size=100`
-        ),
+        getAttendanceSummary({
+          school_class: classId,
+          term: CURRENT_TERM,
+          year: CURRENT_YEAR,
+        }),
       ]);
 
+      const byStudent = new Map(
+        (data.students || []).map((r) => [String(r.student), r])
+      );
       const summary = classStudents.map((student) => {
-        const sr = records.filter(
-          (a) =>
-            String(a.student) === String(student.id) ||
-            String(a.student_id) === String(student.id)
-        );
-        const total   = sr.length;
-        const present = sr.filter((a) => a.status === "present").length;
-        const absent  = sr.filter((a) => a.status === "absent").length;
-        const late    = sr.filter((a) => a.status === "late").length;
-        // (present + late) / total: late counts as present per model semantics
-        const rate =
-          total > 0
-            ? Math.round(((present + late) / total) * 100)
-            : null;
-        return { student, total, present, absent, late, rate };
+        const r = byStudent.get(String(student.id));
+        return {
+          student,
+          total: r?.counted_days ?? 0,
+          present: r?.present ?? 0,
+          absent: r?.absent ?? 0,
+          late: r?.late ?? 0,
+          excused: r?.excused ?? 0,
+          rate:
+            r && r.percentage !== null && r.percentage !== undefined
+              ? Math.round(r.percentage)
+              : null,
+        };
       });
 
       summary.sort((a, b) => {
@@ -725,11 +723,16 @@ const Attendance = () => {
         return a.rate - b.rate;
       });
 
+      setSummaryMeta({
+        schoolDays: data.school_days,
+        holidays: data.holidays || [],
+        period: data.period,
+      });
       dispatch({ type: "FETCH_SUMMARY_DONE", payload: summary });
-    } catch {
+    } catch (e) {
       dispatch({
         type: "SET_ERROR",
-        payload: "Failed to load attendance summary.",
+        payload: apiError(e, "Failed to load attendance summary."),
       });
     }
   }, []);
@@ -744,6 +747,18 @@ const Attendance = () => {
     if (selectedClass && selectedDate)
       fetchStudents(selectedClass, selectedDate);
   }, [selectedClass, selectedDate, fetchStudents]);
+
+  // Is the selected date a school day? (holiday / closure / weekend)
+  useEffect(() => {
+    if (!selectedDate) return undefined;
+    let cancelled = false;
+    checkSchoolDay(selectedDate)
+      .then((d) => !cancelled && setDayInfo(d))
+      .catch(() => !cancelled && setDayInfo(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate]);
 
   useEffect(() => {
     if (activeTab === "Student Summary" && selectedClass)
@@ -828,6 +843,14 @@ const Attendance = () => {
       });
       return;
     }
+    if (selectedDayInfo && !selectedDayInfo.is_school_day) {
+      dispatch({
+        type: "SET_ERROR",
+        payload:
+          "Attendance cannot be recorded because this date is a non-school day.",
+      });
+      return;
+    }
 
     const studentsToSave = students.filter(
       (s) => attendance[s.id] !== null && attendance[s.id] !== undefined
@@ -883,6 +906,8 @@ const Attendance = () => {
       .filter((r) => r.status === "fulfilled")
       .map((r) => r.value);
     const failedCount = results.filter((r) => r.status === "rejected").length;
+    const firstRejected = results.find((r) => r.status === "rejected");
+    const reason = firstRejected ? apiError(firstRejected.reason, "") : "";
 
     const newIds = {};
     succeeded.forEach(({ studentId, id }) => {
@@ -895,12 +920,12 @@ const Attendance = () => {
     if (failedCount > 0 && succeeded.length > 0) {
       dispatch({
         type: "SAVING_ERROR",
-        payload: `${succeeded.length} record(s) saved. ${failedCount} failed — please retry.`,
+        payload: `${succeeded.length} record(s) saved. ${failedCount} failed — ${reason || "please retry."}`,
       });
     } else if (failedCount > 0) {
       dispatch({
         type: "SAVING_ERROR",
-        payload: "Failed to save attendance. Please try again.",
+        payload: reason || "Failed to save attendance. Please try again.",
       });
     } else {
       const msg =
@@ -915,7 +940,7 @@ const Attendance = () => {
   // ── Derived data ───────────────────────────────────────────────────────────
 
   const counts = useMemo(() => {
-    const base = { present: 0, absent: 0, late: 0, unset: 0 };
+    const base = { present: 0, absent: 0, late: 0, excused: 0, unset: 0 };
     Object.values(attendance).forEach((s) => {
       if (s === null || s === undefined) base.unset++;
       else if (base[s] !== undefined) base[s]++;
@@ -1020,7 +1045,8 @@ const Attendance = () => {
         />
       )}
 
-      {/* Filters */}
+      {/* Filters (class + date) — the Records tab has its own filters */}
+      {activeTab !== "Records & Reports" && (
       <div className="flex flex-wrap gap-3 mb-6 items-end">
         <div className="flex flex-col gap-1">
           <label
@@ -1053,16 +1079,51 @@ const Attendance = () => {
           >
             Date
           </label>
-          <input
-            id="date-input"
-            type="date"
-            value={selectedDate}
-            max={maxDate}
-            onChange={(e) =>
-              dispatch({ type: "SET_DATE", payload: e.target.value })
-            }
-            className="border border-gray-200 bg-white text-gray-800 px-3 py-2 rounded-xl text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-          />
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() =>
+                dispatch({ type: "SET_DATE", payload: shiftIso(selectedDate, -1) })
+              }
+              aria-label="Previous day"
+              className="px-2.5 py-2 rounded-xl border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 text-sm shadow-sm"
+            >
+              ‹
+            </button>
+            <input
+              id="date-input"
+              type="date"
+              value={selectedDate}
+              max={maxDate}
+              onChange={(e) =>
+                e.target.value &&
+                dispatch({ type: "SET_DATE", payload: e.target.value })
+              }
+              className="border border-gray-200 bg-white text-gray-800 px-3 py-2 rounded-xl text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+            />
+            <button
+              type="button"
+              onClick={() =>
+                dispatch({ type: "SET_DATE", payload: shiftIso(selectedDate, 1) })
+              }
+              disabled={selectedDate >= maxDate}
+              aria-label="Next day"
+              className="px-2.5 py-2 rounded-xl border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 text-sm shadow-sm disabled:opacity-40"
+            >
+              ›
+            </button>
+            {!dateIsToday && (
+              <button
+                type="button"
+                onClick={() =>
+                  dispatch({ type: "SET_DATE", payload: todayStr() })
+                }
+                className="px-3 py-2 rounded-xl border border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 text-xs font-semibold"
+              >
+                Today
+              </button>
+            )}
+          </div>
         </div>
 
         {selectedDate && (
@@ -1077,9 +1138,10 @@ const Attendance = () => {
           </span>
         )}
       </div>
+      )}
 
       {/* Tabs */}
-      {selectedClass && (
+      {(
         <div
           className="flex border-b border-gray-100 mb-6 gap-1"
           role="tablist"
@@ -1123,7 +1185,19 @@ const Attendance = () => {
             </div>
           )}
 
-          {students.length > 0 && !loadingStudents && (
+          {selectedClass && selectedDayInfo && !selectedDayInfo.is_school_day && (
+            <>
+              <HolidayBanner info={selectedDayInfo} date={selectedDate} />
+              {hasAnyRecord && (
+                <p className="mb-5 text-xs text-gray-400 text-center">
+                  Records saved for this date before it became a non-school day
+                  can be corrected in the Records &amp; Reports tab.
+                </p>
+              )}
+            </>
+          )}
+
+          {students.length > 0 && !loadingStudents && !(selectedDayInfo && !selectedDayInfo.is_school_day) && (
             <>
               <DateModeBanner
                 selectedDate={selectedDate}
@@ -1395,10 +1469,10 @@ const Attendance = () => {
                   </div>
                   <div className="bg-gray-50 rounded-xl p-4">
                     <div className="text-xs text-gray-400 mb-1">
-                      Days recorded
+                      School days
                     </div>
                     <div className="text-2xl font-bold text-gray-700">
-                      {summaryStats.totalDays}
+                      {summaryMeta?.schoolDays ?? summaryStats.totalDays}
                     </div>
                   </div>
                   <div className="bg-gray-50 rounded-xl p-4">
@@ -1430,6 +1504,15 @@ const Attendance = () => {
                 </div>
               )}
 
+              {summaryMeta?.holidays?.length > 0 && (
+                <p className="mb-4 text-xs text-gray-400">
+                  <span aria-hidden="true">🏖 </span>
+                  Holidays excluded from these figures:{" "}
+                  {summaryMeta.holidays.map((h) => h.name).filter((n, i, a) => a.indexOf(n) === i).join(", ")}.
+                  Weekends and excused days are not counted either.
+                </p>
+              )}
+
               <div className="mb-4 w-64">
                 <SearchBar
                   value={summarySearch}
@@ -1453,13 +1536,16 @@ const Attendance = () => {
                       <th className="px-4 py-3 text-center text-amber-500" scope="col">
                         Late
                       </th>
-                      <th className="px-4 py-3 text-center" scope="col">Total</th>
+                      <th className="px-4 py-3 text-center text-sky-600" scope="col">
+                        Excused
+                      </th>
+                      <th className="px-4 py-3 text-center" scope="col">Counted</th>
                       <th className="px-4 py-3 text-center" scope="col">Rate</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {filteredSummary.map(
-                      ({ student, present, absent, late, total, rate }, index) => {
+                      ({ student, present, absent, late, excused, total, rate }, index) => {
                         const isAtRisk = rate !== null && rate < 60;
                         return (
                           <tr
@@ -1506,6 +1592,9 @@ const Attendance = () => {
                             <td className="px-4 py-3 text-center text-amber-500 font-semibold">
                               {late}
                             </td>
+                            <td className="px-4 py-3 text-center text-sky-600 font-semibold">
+                              {excused}
+                            </td>
                             <td className="px-4 py-3 text-center text-gray-400">
                               {total}
                             </td>
@@ -1535,6 +1624,9 @@ const Attendance = () => {
           )}
         </>
       )}
+
+      {/* ── Tab: Records & Reports ── */}
+      {activeTab === "Records & Reports" && <AttendanceRecords role="admin" />}
     </div>
   );
 };

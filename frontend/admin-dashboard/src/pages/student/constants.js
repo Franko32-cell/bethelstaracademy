@@ -190,6 +190,7 @@ export const PORTAL_STYLES = `
   .sp-att-present-pill { background:#dcfce7; color:#166534; }
   .sp-att-absent-pill  { background:#fee2e2; color:#991b1b; }
   .sp-att-late-pill    { background:#fef9c3; color:#92400e; }
+  .sp-att-excused-pill { background:#e0f2fe; color:#075985; }
 
   .sp-progress-bar { height: 8px; border-radius: 99px; background: var(--line); overflow: hidden; margin-top: 6px; }
   .sp-progress-fill { height: 100%; border-radius: 99px; transition: width .5s ease; }

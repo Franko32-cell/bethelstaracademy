@@ -7,7 +7,8 @@ import { TERMS } from "../constants";
 const AttendanceTab = ({ attendance, stats, loading, selectedTerm }) => {
   if (loading) return <Loading text="Loading attendance records…" />;
 
-  const rate = stats.total > 0 ? Math.round((stats.present / stats.total) * 100) : 0;
+  // Late counts as attended; excused days are left out of the rate entirely.
+  const rate = stats.total > 0 ? Math.round(((stats.present + stats.late) / stats.total) * 100) : 0;
   const rateColor = rate >= 80 ? "#16a34a" : rate >= 60 ? "#d97706" : "#dc2626";
 
   return (
@@ -38,7 +39,8 @@ const AttendanceTab = ({ attendance, stats, loading, selectedTerm }) => {
               <div className="sp-progress-fill" style={{ width: `${rate}%`, background: rateColor }} />
             </div>
             <p style={{ fontSize: "11.5px", color: "#94a3b8", marginTop: "5px" }}>
-              {stats.present} of {stats.total} school days marked present{stats.late > 0 ? ` · ${stats.late} late` : ""}
+              {stats.present + stats.late} of {stats.total} school days attended{stats.late > 0 ? ` (${stats.late} late)` : ""}
+              {stats.excused > 0 ? ` · ${stats.excused} excused, not counted` : ""}
             </p>
           </div>
         </div>
@@ -67,8 +69,10 @@ const AttendanceTab = ({ attendance, stats, loading, selectedTerm }) => {
                     const d = new Date(rec.date);
                     const day = d.toLocaleDateString("en-GH", { weekday: "short" });
                     const dateStr = d.toLocaleDateString("en-GH", { day: "numeric", month: "short", year: "numeric" });
-                    const statusClass = rec.status === "present" ? "sp-att-present-pill" : rec.status === "absent" ? "sp-att-absent-pill" : "sp-att-late-pill";
-                    const statusLabel = rec.status === "present" ? "✓ Present" : rec.status === "absent" ? "✕ Absent" : "⚠ Late";
+                    const PILL = { present: "sp-att-present-pill", absent: "sp-att-absent-pill", late: "sp-att-late-pill", excused: "sp-att-excused-pill" };
+                    const LABEL = { present: "✓ Present", absent: "✕ Absent", late: "⚠ Late", excused: "✎ Excused" };
+                    const statusClass = PILL[rec.status] || "sp-att-late-pill";
+                    const statusLabel = LABEL[rec.status] || rec.status;
                     return (
                       <tr key={rec.id ?? i}>
                         <td style={{ color: "#94a3b8", fontSize: "12px" }}>{i + 1}</td>
