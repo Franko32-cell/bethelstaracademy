@@ -129,7 +129,7 @@ const Tile = ({ label, value, tone = "text-gray-700", hint }) => (
  * lockedClassId   teachers: the class they manage; the class filter is fixed
  *                 (the API enforces this too — it is only a UI convenience)
  */
-const AttendanceRecords = ({ role = "admin", lockedClassId = "" }) => {
+const AttendanceRecords = ({ role = "admin", lockedClassId = "", onRecordChanged = () => {} }) => {
   const isAdmin = role === "admin";
 
   const [draft, setDraft] = useState(EMPTY_FILTERS);
@@ -144,7 +144,7 @@ const AttendanceRecords = ({ role = "admin", lockedClassId = "" }) => {
   // simply "the stored key is not the current key".
   const [tick, setTick] = useState(0);            // bump to force a reload
   const [listState, setListState] = useState({ key: null, rows: [], count: 0, error: "" });
-  const [sumState, setSumState] = useState({ key: null, data: null });
+  const [sumState, setSumState] = useState({ key: null, data: null, error: "" });
   const [error, setError] = useState("");
   const [filterError, setFilterError] = useState("");
   const [notice, setNotice] = useState("");
@@ -183,7 +183,12 @@ const AttendanceRecords = ({ role = "admin", lockedClassId = "" }) => {
     let cancelled = false;
     getClassStudents(draftClass)
       .then((list) => !cancelled && setStudents(list))
-      .catch(() => !cancelled && setStudents([]));
+      .catch((e) => {
+        if (!cancelled) {
+          setStudents([]);
+          setError(apiError(e, "Failed to load class students."));
+        }
+      });
     return () => { cancelled = true; };
   }, [draftClass]);
   const classStudents = draftClass ? students : [];
@@ -203,8 +208,12 @@ const AttendanceRecords = ({ role = "admin", lockedClassId = "" }) => {
   useEffect(() => {
     let cancelled = false;
     getAttendanceSummary(params)
-      .then((d) => !cancelled && setSumState({ key: sumKey, data: d }))
-      .catch(() => !cancelled && setSumState({ key: sumKey, data: null }));
+      .then((d) => !cancelled && setSumState({ key: sumKey, data: d, error: "" }))
+      .catch((e) => !cancelled && setSumState({
+        key: sumKey,
+        data: null,
+        error: apiError(e, "Failed to load attendance summary."),
+      }));
     return () => { cancelled = true; };
   }, [params, sumKey]);
 
@@ -253,6 +262,7 @@ const AttendanceRecords = ({ role = "admin", lockedClassId = "" }) => {
       setEditing(null);
       setNotice("Attendance record updated.");
       reload();
+      await onRecordChanged();
     } catch (e) {
       setEditError(apiError(e, "Could not update the record."));
     } finally {
@@ -267,6 +277,7 @@ const AttendanceRecords = ({ role = "admin", lockedClassId = "" }) => {
       setNotice("Attendance record deleted.");
       if (rows.length === 1 && page > 1) setPage(page - 1);
       reload();
+      await onRecordChanged();
     } catch (e) {
       setDeleting(null);
       setError(apiError(e, "Could not delete the record."));
@@ -454,9 +465,9 @@ ${studentRows ? `<h2>By student</h2><table><thead><tr><th>Student</th><th>Adm. N
         </div>
       </form>
 
-      {shownError && (
+      {(shownError || sumState.error) && (
         <div role="alert" className="mb-4 px-4 py-3 rounded-xl text-sm font-medium bg-red-50 border border-red-200 text-red-700 flex justify-between gap-3">
-          <span>{shownError}</span>
+          <span>{shownError || sumState.error}</span>
           <button
             onClick={() => { setError(""); setListState((s) => ({ ...s, error: "" })); }}
             aria-label="Dismiss" className="opacity-60 hover:opacity-100">✕</button>

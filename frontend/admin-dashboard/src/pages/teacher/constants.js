@@ -72,7 +72,10 @@ export const STATUS_CONFIG = {
   late:    { dot: "bg-amber-400",   pill: "bg-amber-50  text-amber-700  ring-1 ring-amber-200",      label: "Late"    },
 };
 
-export const todayStr = new Date().toISOString().split("T")[0];
+export const todayStr = () => {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+};
 
 export const CHAR_AREAS = [
   { key: "punctuality",     label: "Punctuality",              guide: "How punctual was the student?"                            },

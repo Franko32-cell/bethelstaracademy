@@ -32,18 +32,21 @@ export const fetchAttendance = async (classId, date) => {
 };
 
 /**
- * Upserts attendance records for every student in the list.
- * Returns { saved: number, failed: number }.
+ * Upserts attendance records for students with a selected status.
+ * Students without a status are left unchanged and reported as skipped.
  */
 export const saveAttendance = async (classId, date, students, attendanceMap) => {
   const existingRes = await API.get(`/attendance/?school_class=${classId}&date=${date}`);
   const existing    = existingRes.data.results ?? existingRes.data;
   const existingMap = Object.fromEntries(existing.map((rec) => [String(rec.student), rec.id]));
+  const selected = students.filter((student) =>
+    attendanceMap[student.id] !== null && attendanceMap[student.id] !== undefined
+  );
 
   const results = await Promise.allSettled(
-    students.map((s) => {
+    selected.map((s) => {
       const existingId = existingMap[String(s.id)];
-      const status     = attendanceMap[s.id] ?? "present";
+      const status     = attendanceMap[s.id];
       return existingId
         ? API.patch(`/attendance/${existingId}/`, { status })
         : API.post("/attendance/", {
@@ -60,6 +63,7 @@ export const saveAttendance = async (classId, date, students, attendanceMap) => 
   return {
     saved: results.length - failed,
     failed,
+    skipped: students.length - selected.length,
     // e.g. "Attendance cannot be recorded because this date is a non-school day."
     firstError: firstRejected ? apiError(firstRejected.reason, "") : "",
   };

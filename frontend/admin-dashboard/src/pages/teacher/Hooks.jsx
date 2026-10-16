@@ -6,6 +6,7 @@
 import { useState, useCallback, useRef } from "react";
 import * as svc from "./Teacherportalservice";
 import { mkDefaultCharState } from "./Helpers";
+import { todayStr } from "./constants";
 import { checkSchoolDay } from "../../services/schoolCalendarService";
 import { apiError } from "../../utils/apiError";
 
@@ -89,43 +90,110 @@ export function useTeacherData(initialClassId = "", initialClassName = "") {
 
 export function useAttendance() {
   const [attendance, setAttendance] = useState({});
+  const [attendanceReady, setAttendanceReady] = useState(false);
+  const [loading,    setLoading]    = useState(false);
   const [saving,     setSaving]     = useState(false);
   const [error,      setError]      = useState("");
   const [success,    setSuccess]    = useState("");
   const [dayInfo,    setDayInfo]    = useState(null);   // school-day check for the date
   const [recorded,   setRecorded]   = useState(false);  // attendance already saved for the date
   const savingRef = useRef(false);
+  const loadRequestRef = useRef(0);
 
   const load = useCallback(async (classId, date, students) => {
-    if (!classId || !students.length) return;
-    try {
-      const [records, info] = await Promise.all([
-        svc.fetchAttendance(classId, date),
-        checkSchoolDay(date).catch(() => null),
-      ]);
-      setDayInfo(info);
-      setRecorded(records.length > 0);
-      const map     = Object.fromEntries(records.map((rec) => [String(rec.student), rec.status]));
-      setAttendance(
-        Object.fromEntries(students.map((s) => [s.id, map[String(s.id)] ?? "present"]))
-      );
-    } catch {
-      // Keep existing attendance state on load failure
+    const requestId = ++loadRequestRef.current;
+    setError("");
+    setSuccess("");
+    setAttendanceReady(false);
+    setAttendance({});
+    setDayInfo(null);
+    setRecorded(false);
+
+    if (!classId || !date || !students.length) {
+      setAttendance({});
+      setAttendanceReady(false);
+      setLoading(false);
+      return;
     }
+
+    setLoading(true);
+    const [recordsResult, calendarResult] = await Promise.allSettled([
+      svc.fetchAttendance(classId, date),
+      checkSchoolDay(date),
+    ]);
+    if (requestId !== loadRequestRef.current) return;
+
+    if (recordsResult.status === "fulfilled") {
+      const records = recordsResult.value;
+      const map = Object.fromEntries(
+        records.map((rec) => [String(rec.student), rec.status])
+      );
+      setAttendance(
+        Object.fromEntries(students.map((s) => [
+          s.id,
+          map[String(s.id)] ?? (date === todayStr() ? "present" : null),
+        ]))
+      );
+      setRecorded(records.length > 0);
+      setAttendanceReady(true);
+    } else {
+      setAttendance({});
+      setError(apiError(recordsResult.reason, "Failed to load attendance records."));
+    }
+
+    if (calendarResult.status === "fulfilled") {
+      setDayInfo(calendarResult.value);
+    } else {
+      setDayInfo(null);
+      setError((current) => current || apiError(
+        calendarResult.reason,
+        "Could not check whether this date is a school day."
+      ));
+    }
+    setLoading(false);
   }, []);
 
-  const toggle = useCallback((id) => {
+  const toggle = useCallback((id, status) => {
     const cycle = { present: "absent", absent: "late", late: "excused", excused: "present" };
-    setAttendance((prev) => ({ ...prev, [id]: cycle[prev[id]] ?? "present" }));
+    setAttendance((prev) => ({
+      ...prev,
+      [id]: status ?? cycle[prev[id]] ?? "present",
+    }));
+  }, []);
+
+  const markAll = useCallback((status) => {
+    setAttendance((prev) =>
+      Object.fromEntries(Object.keys(prev).map((id) => [id, status]))
+    );
   }, []);
 
   const save = useCallback(async (classId, date, students, todayStr) => {
+    if (!classId || !date || !students.length) {
+      setError("Select a class, date, and at least one student before saving.");
+      return;
+    }
     if (date > todayStr) {
       setError("Cannot record attendance for a future date.");
       return;
     }
-    if (dayInfo && !dayInfo.is_school_day) {
+    if (loading) {
+      setError("Attendance is still loading. Please wait before saving.");
+      return;
+    }
+    if (!dayInfo || dayInfo.date !== date) {
+      setError("School-day status is unavailable for this date. Please retry loading attendance.");
+      return;
+    }
+    if (!dayInfo.is_school_day) {
       setError("Attendance cannot be recorded because this date is a non-school day.");
+      return;
+    }
+    if (!attendanceReady) {
+      setError("Attendance has not loaded. Please retry before saving.");
+      return;
+    }
+    if (!Object.values(attendance).some((status) => status)) {
+      setError("Choose a status for at least one student before saving.");
       return;
     }
     if (savingRef.current) return; // ignore double-clicks / duplicate submissions
@@ -134,12 +202,15 @@ export function useAttendance() {
     setError("");
     setSuccess("");
     try {
-      const { failed, firstError } = await svc.saveAttendance(classId, date, students, attendance);
+      const { saved, failed, skipped, firstError } = await svc.saveAttendance(classId, date, students, attendance);
       if (failed > 0) {
-        setError(`${failed} record(s) could not be saved. ${firstError || "Please try again."}`);
+        setError(`${saved} record(s) saved, ${failed} failed${skipped ? `, ${skipped} skipped` : ""}. ${firstError || "Please try again."}`);
+        if (saved > 0) setRecorded(true);
       } else {
         setRecorded(true);
-        setSuccess("Attendance saved successfully.");
+        setSuccess(skipped
+          ? `Attendance saved. ${skipped} student(s) without a status were skipped.`
+          : "Attendance saved successfully.");
       }
     } catch (e) {
       setError(apiError(e, "Failed to save attendance."));
@@ -147,12 +218,24 @@ export function useAttendance() {
       savingRef.current = false;
       setSaving(false);
     }
-  }, [attendance, dayInfo]);
+  }, [attendance, attendanceReady, dayInfo, loading]);
 
-  const reset = useCallback(() => setAttendance({}), []);
+  const reset = useCallback(() => {
+    loadRequestRef.current += 1;
+    setAttendance({});
+    setAttendanceReady(false);
+    setLoading(false);
+    setSaving(false);
+    setError("");
+    setSuccess("");
+    setDayInfo(null);
+    setRecorded(false);
+  }, []);
 
   return {
     attendance,
+    attendanceReady,
+    loading,
     saving,
     error,
     success,
@@ -162,6 +245,7 @@ export function useAttendance() {
     setSuccess,
     load,
     toggle,
+    markAll,
     save,
     reset,
   };

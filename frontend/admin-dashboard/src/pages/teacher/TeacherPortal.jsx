@@ -67,6 +67,7 @@ const TeacherPortal = () => {
     user.class ?? ""
   );
   const attendance   = useAttendance();
+  const loadAttendance = attendance.load;
   const results      = useResults();
   const charAssess   = useCharAssessment();
 
@@ -103,11 +104,12 @@ const TeacherPortal = () => {
     if (
       tab === "Attendance" &&
       teacherData.selectedClass &&
-      teacherData.students.length > 0
+      teacherData.students.length > 0 &&
+      !teacherData.loadingStudents
     ) {
-      attendance.load(teacherData.selectedClass, attDate, teacherData.students);
+      loadAttendance(teacherData.selectedClass, attDate, teacherData.students);
     }
-  }, [tab, attDate, teacherData.selectedClass, teacherData.students]);
+  }, [tab, attDate, teacherData.selectedClass, teacherData.students, teacherData.loadingStudents, loadAttendance]);
 
   useEffect(() => {
     if (
@@ -203,6 +205,16 @@ const TeacherPortal = () => {
     charAssess.resetForClass();
   };
 
+  const handleTabChange = (nextTab) => {
+    if (nextTab === "Attendance") {
+      const assignedClassId = user.class_id ? String(user.class_id) : "";
+      if (String(teacherData.selectedClass) !== assignedClassId) {
+        handleClassChange(assignedClassId);
+      }
+    }
+    setTab(nextTab);
+  };
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
@@ -272,7 +284,7 @@ const TeacherPortal = () => {
 
           <nav className="hidden sm:flex items-center gap-1">
             {TABS.map(({ key, icon, label }) => (
-              <button key={key} onClick={() => setTab(key)}
+              <button key={key} onClick={() => handleTabChange(key)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
                   tab === key
                     ? "bg-blue-50 text-blue-600"
@@ -303,7 +315,7 @@ const TeacherPortal = () => {
         {/* Mobile tab bar */}
         <nav className="sm:hidden flex border-t border-slate-100 overflow-x-auto">
           {TABS.map(({ key, icon, label }) => (
-            <button key={key} onClick={() => setTab(key)}
+            <button key={key} onClick={() => handleTabChange(key)}
               className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-[10px] font-medium border-b-2 transition-all min-w-[60px] ${
                 tab === key ? "border-blue-600 text-blue-600" : "border-transparent text-slate-400"
               }`}>
@@ -337,7 +349,10 @@ const TeacherPortal = () => {
               <select value={teacherData.selectedClass} onChange={(e) => handleClassChange(e.target.value)}
                 className="border border-slate-200 bg-slate-50 px-3 py-2 rounded-xl text-sm min-w-[150px] focus:outline-none focus:ring-2 focus:ring-blue-400">
                 <option value="">Select Class</option>
-                {teacherData.classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {(tab === "Attendance"
+                  ? teacherData.classes.filter((c) => String(c.id) === String(user.class_id || ""))
+                  : teacherData.classes
+                ).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
 
@@ -349,14 +364,6 @@ const TeacherPortal = () => {
                   <option value="">Select Subject</option>
                   {teacherData.subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
-              </div>
-            )}
-
-            {tab === "Attendance" && (
-              <div>
-                <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide block mb-1.5">Date</label>
-                <input type="date" value={attDate} max={todayStr} onChange={(e) => setAttDate(e.target.value)}
-                  className="border border-slate-200 bg-slate-50 px-3 py-2 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
               </div>
             )}
 
@@ -411,7 +418,7 @@ const TeacherPortal = () => {
 
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
               <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 mb-3">Attendance snapshot</p>
-              <div className="grid grid-cols-3 gap-2 text-sm">
+              <div className="grid grid-cols-2 xl:grid-cols-4 gap-2 text-sm">
                 <div className="rounded-2xl bg-emerald-50 px-3 py-3 text-emerald-700">
                   <p className="text-xs uppercase tracking-[0.2em]">Present</p>
                   <p className="text-xl font-bold">{attendanceTotals.present}</p>
@@ -423,6 +430,10 @@ const TeacherPortal = () => {
                 <div className="rounded-2xl bg-amber-50 px-3 py-3 text-amber-700">
                   <p className="text-xs uppercase tracking-[0.2em]">Late</p>
                   <p className="text-xl font-bold">{attendanceTotals.late}</p>
+                </div>
+                <div className="rounded-2xl bg-sky-50 px-3 py-3 text-sky-700">
+                  <p className="text-xs uppercase tracking-[0.2em]">Excused</p>
+                  <p className="text-xl font-bold">{attendanceTotals.excused}</p>
                 </div>
               </div>
             </div>
@@ -445,7 +456,13 @@ const TeacherPortal = () => {
         <Alert message={success} type="success" onDismiss={clearSuccess} />
 
         {!teacherData.selectedClass && (
-          <EmptyState icon="🏫" title="Select a class to get started" sub="Use the dropdown above to choose your class" />
+          <EmptyState
+            icon="🏫"
+            title={tab === "Attendance" && !user.class_id ? "No class is assigned" : "Select a class to get started"}
+            sub={tab === "Attendance" && !user.class_id
+              ? "Attendance access requires a class assignment. Contact an administrator."
+              : "Use the dropdown above to choose your class"}
+          />
         )}
 
         {/* ── Tab content ── */}
@@ -467,16 +484,30 @@ const TeacherPortal = () => {
                 selectedClassName={teacherData.selectedClassName}
                 attDate={attDate}
                 attendance={attendance.attendance}
+                attendanceLoading={attendance.loading}
+                attendanceReady={attendance.attendanceReady}
                 dayInfo={attendance.dayInfo}
                 recorded={attendance.recorded}
                 classId={teacherData.selectedClass}
                 saving={attendance.saving}
+                onDateChange={setAttDate}
+                onMarkAll={attendance.markAll}
                 onToggle={attendance.toggle}
                 onSave={() => attendance.save(
                   teacherData.selectedClass,
                   attDate,
                   teacherData.students,
-                  todayStr
+                  todayStr()
+                )}
+                onHistoryChange={() => attendance.load(
+                  teacherData.selectedClass,
+                  attDate,
+                  teacherData.students
+                )}
+                onRetry={() => attendance.load(
+                  teacherData.selectedClass,
+                  attDate,
+                  teacherData.students
                 )}
               />
             )}
