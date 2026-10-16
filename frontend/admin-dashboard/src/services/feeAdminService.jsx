@@ -31,7 +31,7 @@ export const getSchoolClasses = () =>
 export const getStudentsByClass = (schoolClass) =>
   API.get("/students/", { params: { school_class: schoolClass } }).then((res) => res.data);
 
-export const sendBulkWhatsAppBills = (schoolClass, term) =>
-  API.post("/fees/send-whatsapp/bulk/", null, { params: { school_class: schoolClass, term } }).then(
-    (res) => res.data
-  );
+export const sendBulkWhatsAppBills = (schoolClass, term, year) =>
+  API.post("/fees/send-whatsapp/bulk/", null, {
+    params: { school_class: schoolClass, term, year },
+  }).then((res) => res.data);

@@ -46,7 +46,7 @@ const ComingSoon = ({ label }) => (
 );
 
 const TabPanelFallback = () => (
-  <div className="flex items-center justify-center py-24 text-slate-400 text-sm font-semibold">
+  <div role="status" aria-live="polite" className="flex items-center justify-center py-24 text-slate-400 text-sm font-semibold">
     Loading…
   </div>
 );

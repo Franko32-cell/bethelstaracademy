@@ -352,9 +352,11 @@ const FeesAdmin = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [lookupError, setLookupError] = useState("");
 
   const [statusFilter, setStatusFilter] = useState("");
   const [termFilter, setTermFilter] = useState("");
+  const [yearFilter, setYearFilter] = useState(String(new Date().getFullYear()));
   const [classFilter, setClassFilter] = useState("");
   const [classes, setClasses] = useState([]);
   const [classStudents, setClassStudents] = useState([]);
@@ -376,6 +378,7 @@ const FeesAdmin = () => {
         const params = { page: targetPage, page_size: pageSize };
         if (statusFilter) params.status = statusFilter;
         if (termFilter) params.term = termFilter;
+        if (yearFilter) params.year = yearFilter;
         if (classFilter) params.school_class = classFilter;
         const data = await getFeesAdmin(params);
         const results = data.results ?? data;
@@ -389,28 +392,51 @@ const FeesAdmin = () => {
         setRefreshing(false);
       }
     },
-    [statusFilter, termFilter, classFilter]
+    [statusFilter, termFilter, yearFilter, classFilter]
   );
 
   useEffect(() => {
     load(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, termFilter, classFilter]);
+  }, [statusFilter, termFilter, yearFilter, classFilter]);
 
   useEffect(() => {
+    let cancelled = false;
     getSchoolClasses()
-      .then((data) => setClasses(data.results || data))
-      .catch(() => {});
+      .then((data) => {
+        if (!cancelled) setClasses(data.results ?? data);
+      })
+      .catch(() => {
+        if (!cancelled) setLookupError("Failed to load classes. Refresh the page to try again.");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    setLookupError("");
     if (!classFilter) {
       setClassStudents([]);
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
+    setClassStudents([]);
     getStudentsByClass(classFilter)
-      .then((data) => setClassStudents(data.results || data))
-      .catch(() => setClassStudents([]));
+      .then((data) => {
+        if (!cancelled) setClassStudents(data.results ?? data);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setClassStudents([]);
+          setLookupError("Failed to load students for this class. Please reselect the class.");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [classFilter]);
 
   const visibleRows = useMemo(() => {
@@ -426,10 +452,10 @@ const FeesAdmin = () => {
   const refreshAfterAction = () => load(page, true);
 
   const sendBulkBills = async () => {
-    if (!classFilter || !termFilter || !classStudents.length) return;
+    if (!classFilter || !termFilter || !yearFilter || !classStudents.length) return;
     if (!window.confirm(`Send a WhatsApp bill to ${classStudents.length} student${classStudents.length === 1 ? "" : "s"}?`)) return;
     try {
-      const data = await sendBulkWhatsAppBills(classFilter, termFilter);
+      const data = await sendBulkWhatsAppBills(classFilter, termFilter, yearFilter);
       setBulkSummary(data);
     } catch {
       setToast({ type: "error", message: "Could not send WhatsApp bills. Please try again." });
@@ -509,6 +535,14 @@ const FeesAdmin = () => {
             placeholder="Term (e.g. term1)"
             className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 sm:w-44"
           />
+          <input
+            type="number"
+            value={yearFilter}
+            onChange={(e) => setYearFilter(e.target.value)}
+            aria-label="Filter fees by year"
+            placeholder="Year"
+            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 sm:w-32"
+          />
           <select
             value={classFilter}
             onChange={(e) => setClassFilter(e.target.value)}
@@ -519,7 +553,7 @@ const FeesAdmin = () => {
           </select>
           <button
             onClick={sendBulkBills}
-            disabled={!classFilter || !termFilter || !classStudents.length}
+            disabled={!classFilter || !termFilter || !yearFilter || !classStudents.length}
             className="rounded-2xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
           >
             Send bills via WhatsApp
@@ -536,9 +570,9 @@ const FeesAdmin = () => {
           </select>
         </div>
 
-        {error && (
+        {(error || lookupError) && (
           <div className="flex items-center gap-3 bg-red-50 border border-red-100 text-red-700 rounded-2xl px-5 py-4 text-sm font-semibold">
-            <FaExclamationTriangle /> {error}
+            <FaExclamationTriangle /> {error || lookupError}
           </div>
         )}
 
@@ -585,14 +619,14 @@ const FeesAdmin = () => {
                         <p className="font-bold text-slate-800">{fee.student_name}</p>
                         <p className="text-xs text-slate-400">{fee.admission_number}</p>
                       </td>
-                      <td className="px-4 py-3.5 text-slate-600 font-medium">{fee.term}</td>
+                      <td className="px-4 py-3.5 text-slate-600 font-medium">{fee.term} {fee.year}</td>
                       <td className="px-4 py-3.5 text-slate-700 font-semibold">{ghs(fee.total_amount)}</td>
                       <td className="px-4 py-3.5 text-emerald-700 font-semibold">{ghs(fee.paid)}</td>
                       <td className="px-4 py-3.5 text-red-600 font-bold">{ghs(fee.balance)}</td>
                       <td className="px-4 py-3.5"><StatusBadge status={feeStatus(fee)} /></td>
                       <td className="px-2 py-3.5">
                         <WhatsAppSendButton
-                          endpoint={`/fees/${fee.id}/send-whatsapp/`}
+                          endpoint={`/fees/${fee.id}/send-whatsapp/?year=${fee.year}`}
                           className="mr-1"
                         />
                         <RowMenu

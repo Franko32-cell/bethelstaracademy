@@ -39,7 +39,7 @@ class SendWhatsAppBillView(APIView):
         if not fee:
             return Response({"success": False, "reason": "not_found"}, status=404)
 
-        pdf_request = _drf_get_request({"term": fee.term})
+        pdf_request = _drf_get_request({"term": fee.term, "year": fee.year})
         pdf_response = StudentFeeBillPDFView().get(pdf_request, fee.student_id)
         if getattr(pdf_response, "status_code", 200) != 200:
             return Response({"success": False, "reason": "pdf_generation_error"}, status=500)
@@ -87,15 +87,20 @@ class BulkSendWhatsAppBillsView(APIView):
     def post(self, request):
         class_id = request.data.get("school_class") or request.query_params.get("school_class")
         term = request.data.get("term") or request.query_params.get("term")
+        year = request.data.get("year") or request.query_params.get("year") or timezone.now().year
         if not class_id or not term:
             return Response({"error": "school_class and term are required"}, status=400)
+        try:
+            year = int(year)
+        except (TypeError, ValueError):
+            return Response({"error": "year must be a valid year"}, status=400)
 
         summary = {"sent": [], "skipped-no-phone": [], "skipped-invalid-phone": [], "failed": []}
         fees = Fee.objects.filter(
-            student__school_class_id=class_id, term=term,
+            student__school_class_id=class_id, term=term, year=year,
         ).select_related("student")
         for fee in fees:
-            pdf_request = _drf_get_request({"term": fee.term})
+            pdf_request = _drf_get_request({"term": fee.term, "year": fee.year})
             pdf_response = StudentFeeBillPDFView().get(pdf_request, fee.student_id)
             if getattr(pdf_response, "status_code", 200) != 200:
                 summary["failed"].append({"student_id": fee.student_id, "reason": "pdf_generation_error"})

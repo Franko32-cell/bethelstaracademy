@@ -47,6 +47,39 @@ class FeeWhatsAppEndpointTests(TestCase):
 		self.assertEqual(response.status_code, 200)
 		self.assertEqual(response.json()["message_id"], "bill-1")
 		self.assertEqual(send_bill.call_args.args[2], self.fee.total_amount)
+		self.assertEqual(
+			build_pdf.call_args.args[0].query_params["year"],
+			str(self.fee.year),
+		)
+
+	@patch("api.views.fee_whatsapp_view.send_whatsapp_bill")
+	@patch("api.views.fee_whatsapp_view.StudentFeeBillPDFView.get")
+	def test_bulk_send_bills_scopes_fee_and_pdf_to_requested_year(self, build_pdf, send_bill):
+		Fee.objects.create(
+			student=self.student,
+			term=self.fee.term,
+			year=self.fee.year - 1,
+			amount=Decimal("700.00"),
+		)
+		build_pdf.return_value = HttpResponse(b"pdf", content_type="application/pdf")
+		send_bill.return_value = {"success": True, "reason": None, "message_id": "bill-1"}
+
+		response = self.client.post(
+			"/api/fees/send-whatsapp/bulk/",
+			{
+				"school_class": self.student.school_class_id,
+				"term": self.fee.term,
+				"year": self.fee.year,
+			},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(len(response.json()["sent"]), 1)
+		self.assertEqual(build_pdf.call_count, 1)
+		self.assertEqual(
+			build_pdf.call_args.args[0].query_params["year"],
+			str(self.fee.year),
+		)
 
 	@patch("api.views.fee_whatsapp_view.send_whatsapp_receipt")
 	@patch("api.views.fee_whatsapp_view.PaymentReceiptPDFView.get")

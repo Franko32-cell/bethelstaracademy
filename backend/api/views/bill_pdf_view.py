@@ -375,12 +375,23 @@ class StudentFeeBillPDFView(APIView):
 
     def get(self, request, student_id):
         term = request.query_params.get("term")
+        requested_year = request.query_params.get("year")
         if not term:
             from rest_framework.response import Response
             return Response({"error": "term is required"}, status=400)
 
+        if requested_year:
+            try:
+                requested_year = int(requested_year)
+            except (TypeError, ValueError):
+                from rest_framework.response import Response
+                return Response({"error": "year must be a valid year"}, status=400)
+
         student = get_object_or_404(Student, id=student_id)
-        fee = Fee.objects.filter(student=student, term=term).first()
+        fees = Fee.objects.filter(student=student, term=term)
+        if requested_year is not None:
+            fees = fees.filter(year=requested_year)
+        fee = fees.first()
 
         if not fee:
             from rest_framework.response import Response
