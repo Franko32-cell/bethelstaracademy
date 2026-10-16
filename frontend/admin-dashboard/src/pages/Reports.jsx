@@ -34,6 +34,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import API from "../services/api";
 import WhatsAppSendButton from "../components/WhatsAppSendButton";
+import { isExamOnly, scoreResult } from "../utils/sbaScoring";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -45,7 +46,7 @@ const TERMS = [
   { value: "term3", label: "Term 3" },
 ];
 
-const CURRENT_TERM = "term1";
+const CURRENT_TERM = "term3";
 
 const CURRENT_YEAR = 2026;
 const YEAR_OPTIONS = Array.from({ length: 6 }, (_, i) => CURRENT_YEAR - i);
@@ -156,6 +157,7 @@ const getStudentName = (s) =>
   "Unknown";
 
 const fmt = (v) => (v == null ? "-" : Math.round(v));
+const fmtMark = (v) => (v == null ? "-" : Number.isInteger(Number(v)) ? Number(v) : Number(v).toFixed(1));
 
 const calcAttendancePct = (present, total) =>
   total ? Math.round((present / total) * 100) : 0;
@@ -786,23 +788,17 @@ const Reports = () => {
                       <th className="px-3 py-2.5 text-left text-xs font-semibold tracking-wide">
                         SUBJECT
                       </th>
-                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
-                        RE-OPEN
-                        <br />
-                        <span className="font-normal opacity-60">
-                          &amp; RDA /20
-                        </span>
-                      </th>
-                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
-                        CA / MGT
-                        <br />
-                        <span className="font-normal opacity-60">/40</span>
-                      </th>
-                      <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">
-                        EXAMS
-                        <br />
-                        <span className="font-normal opacity-60">/40</span>
-                      </th>
+                      {isExamOnly(level) ? (
+                        <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">EXAM /100</th>
+                      ) : (
+                        <>
+                          <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">TEST 1 /20</th>
+                          <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">GROUP WORK /20</th>
+                          <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">TEST 2 /20</th>
+                          <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">SBA /50</th>
+                          <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide">EXAM /50</th>
+                        </>
+                      )}
                       <th className="px-3 py-2.5 text-center text-xs font-semibold tracking-wide bg-blue-800/60">
                         TOTAL
                         <br />
@@ -825,6 +821,7 @@ const Reports = () => {
                     {report.subjects?.map((sub, i) => {
                       const badgeCls =
                         GRADE_COLORS[sub.grade] || "bg-slate-100 text-slate-600";
+                      const metrics = scoreResult(sub, level);
                       return (
                         <tr
                           key={sub.subject ?? i}
@@ -835,15 +832,17 @@ const Reports = () => {
                           <td className="px-3 py-2.5 font-medium text-slate-700">
                             {sub.subject}
                           </td>
-                          <td className="px-3 py-2.5 text-center font-mono text-slate-600">
-                            {fmt(sub.reopen)}
-                          </td>
-                          <td className="px-3 py-2.5 text-center font-mono text-slate-600">
-                            {fmt(sub.ca)}
-                          </td>
-                          <td className="px-3 py-2.5 text-center font-mono text-slate-600">
-                            {fmt(sub.exams)}
-                          </td>
+                          {isExamOnly(level) ? (
+                            <td className="px-3 py-2.5 text-center font-mono text-slate-600">{fmtMark(sub.exam)}</td>
+                          ) : (
+                            <>
+                              <td className="px-3 py-2.5 text-center font-mono text-slate-600">{fmtMark(sub.test1)}</td>
+                              <td className="px-3 py-2.5 text-center font-mono text-slate-600">{fmtMark(sub.group_work)}</td>
+                              <td className="px-3 py-2.5 text-center font-mono text-slate-600">{fmtMark(sub.test2)}</td>
+                              <td className="px-3 py-2.5 text-center font-mono text-slate-600">{metrics.sba.toFixed(1)}</td>
+                              <td className="px-3 py-2.5 text-center font-mono text-slate-600">{metrics.examScore.toFixed(1)}</td>
+                            </>
+                          )}
                           <td className="px-3 py-2.5 text-center font-mono font-bold text-blue-700 bg-blue-50/50">
                             {fmt(sub.score)}
                           </td>

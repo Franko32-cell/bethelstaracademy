@@ -4,55 +4,9 @@
 // Each function is independently testable.
 
 import { CHAR_SCORE_GRADES, GRADE_REMARK } from "./constants";
+import { scoreResult } from "../../utils/sbaScoring";
 
-// ── Score breakdown calculators ───────────────────────────────────────────
-
-/**
- * Re-open score = (reopen_raw / 10) + (rda / 10), capped at 20.
- */
-export const calcReopenScore = (breakdown) => {
-  const reopen = Math.min(10, parseFloat(breakdown.reopen_raw) || 0);
-  const rda    = Math.min(10, parseFloat(breakdown.rda)        || 0);
-  return Math.round((reopen + rda) * 10) / 10;
-};
-
-/**
- * CA-only portion (out of 25), scaled from raw HW + CW + CT totals (max 110).
- */
-export const calcCAonly = (breakdown) => {
-  const hw = ["hw1", "hw2", "hw3", "hw4"].reduce((s, k) => s + (parseFloat(breakdown[k]) || 0), 0);
-  const cw = ["cw1", "cw2", "cw3", "cw4"].reduce((s, k) => s + (parseFloat(breakdown[k]) || 0), 0);
-  const ct = ["ct1", "ct2", "ct3", "ct4"].reduce((s, k) => s + (parseFloat(breakdown[k]) || 0), 0);
-  return Math.round(((hw + cw + ct) / 110) * 25 * 10) / 10;
-};
-
-/**
- * MGT score, capped at 15.
- */
-export const calcMGTScore = (breakdown) =>
-  Math.round(Math.min(15, parseFloat(breakdown.mgt_raw) || 0) * 10) / 10;
-
-/**
- * Combined CA + MGT score (out of 40).
- */
-export const calcCAScore = (breakdown) =>
-  Math.round((calcCAonly(breakdown) + calcMGTScore(breakdown)) * 10) / 10;
-
-/**
- * Exams score scaled from raw /100 to /40.
- */
-export const calcExamsScore = (breakdown) =>
-  Math.round(((parseFloat(breakdown.exam_raw) || 0) / 100) * 40 * 10) / 10;
-
-// ── Total / grade ─────────────────────────────────────────────────────────
-
-/**
- * Sum of reopen + ca + exams, rounded to 1 dp.
- */
-export const computeTotal = (reopen, ca, exams) =>
-  Math.round(
-    ((parseFloat(reopen) || 0) + (parseFloat(ca) || 0) + (parseFloat(exams) || 0)) * 10
-  ) / 10;
+export const computeTotal = (values, level) => scoreResult(values, level).total;
 
 const THRESHOLDS_B79 = [
   [90, "1"], [80, "2"], [60, "3"], [55, "4"],
@@ -63,16 +17,8 @@ const THRESHOLDS_B16 = [
   [50, "E"], [45, "E2"], [40, "E3"], [35, "E4"], [0, "E5"],
 ];
 
-/**
- * Returns the grade string for a given total and class level.
- * @param {number} total
- * @param {"basic_7_9"|"basic_1_6"|"nursery_kg"} level
- */
 export const gradeFromTotal = (total, level = "basic_7_9") => {
-  const thresholds =
-    level === "basic_1_6" || level === "nursery_kg"
-      ? THRESHOLDS_B16
-      : THRESHOLDS_B79;
+  const thresholds = level === "basic_1_6" || level === "nursery_kg" ? THRESHOLDS_B16 : THRESHOLDS_B79;
   for (const [min, grade] of thresholds) {
     if (total >= min) return grade;
   }
@@ -90,27 +36,6 @@ export const fmtPos = (n) => {
   const s = ["th", "st", "nd", "rd"];
   const v = n % 100;
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
-};
-
-// ── Breakdown label helpers (for the score table tooltip rows) ────────────
-
-export const getReopenBreakdown = (breakdowns, studentId) => {
-  const b = breakdowns[studentId]?.reopen;
-  if (!b) return null;
-  return `${parseFloat(b.reopen_raw) || 0}+${parseFloat(b.rda) || 0}`;
-};
-
-export const getCABreakdown = (breakdowns, studentId) => {
-  const b = breakdowns[studentId]?.ca;
-  if (!b) return null;
-  const mgt = parseFloat(b.mgt_raw) || 0;
-  return `CA:${calcCAonly(b).toFixed(1)} MGT:${mgt}`;
-};
-
-export const getExamsBreakdown = (breakdowns, studentId) => {
-  const b = breakdowns[studentId]?.exams;
-  if (!b) return null;
-  return `raw:${parseFloat(b.exam_raw) || 0}/100`;
 };
 
 // ── Character assessment helpers ──────────────────────────────────────────

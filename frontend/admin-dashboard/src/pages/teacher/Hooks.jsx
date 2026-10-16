@@ -9,6 +9,7 @@ import { mkDefaultCharState } from "./Helpers";
 import { todayStr } from "./constants";
 import { checkSchoolDay } from "../../services/schoolCalendarService";
 import { apiError } from "../../utils/apiError";
+import { emptyResult, SBA_COMPONENTS } from "../../utils/sbaScoring";
 
 // ── useTeacherData ────────────────────────────────────────────────────────
 // Loads classes, subjects, and students. Resets derived state on class change.
@@ -255,7 +256,6 @@ export function useAttendance() {
 
 export function useResults() {
   const [scores,      setScores]      = useState({});
-  const [breakdowns,  setBreakdowns]  = useState({});
   const [existingIds, setExistingIds] = useState({});
   const [saving,      setSaving]      = useState(false);
   const [deleting,    setDeleting]    = useState(null);
@@ -269,7 +269,12 @@ export function useResults() {
       const serverMap = Object.fromEntries(
         records.map((rec) => [
           String(rec.student),
-          { reopen: rec.reopen, ca: rec.ca, exams: rec.exams },
+          {
+            test1: rec.test1 ?? "",
+            group_work: rec.group_work ?? "",
+            test2: rec.test2 ?? "",
+            exam: rec.exam ?? "",
+          },
         ])
       );
       const idMap = Object.fromEntries(records.map((rec) => [rec.student, rec.id]));
@@ -278,7 +283,7 @@ export function useResults() {
         Object.fromEntries(
           students.map((s) => [
             s.id,
-            serverMap[String(s.id)] ?? { reopen: "", ca: "", exams: "" },
+            serverMap[String(s.id)] ?? emptyResult(),
           ])
         )
       );
@@ -288,30 +293,24 @@ export function useResults() {
     }
   }, []);
 
-  const applyScore = useCallback((studentId, field, score, breakdown) => {
+  const applyScore = useCallback((studentId, field, score) => {
     setScores((prev) => ({
       ...prev,
       [studentId]: { ...(prev[studentId] || {}), [field]: score },
-    }));
-    setBreakdowns((prev) => ({
-      ...prev,
-      [studentId]: { ...(prev[studentId] || {}), [field]: breakdown },
     }));
   }, []);
 
   const submitAll = useCallback(
     async (classId, term, subjectId, year, students) => {
       const records = Object.entries(scores)
-        .filter(([, v]) => v.reopen !== "" || v.ca !== "" || v.exams !== "")
+        .filter(([, v]) => SBA_COMPONENTS.some(({ key }) => v[key] !== ""))
         .map(([sid, v]) => ({
           student:      sid,
           subject:      subjectId,
           school_class: classId,
           term,
           year,
-          reopen: parseFloat(v.reopen) || 0,
-          ca:     parseFloat(v.ca)     || 0,
-          exams:  parseFloat(v.exams)  || 0,
+          ...Object.fromEntries(SBA_COMPONENTS.map(({ key }) => [key, parseFloat(v[key]) || 0])),
         }));
 
       if (!records.length) {
@@ -348,9 +347,8 @@ export function useResults() {
     setDeleting(studentId);
     try {
       await svc.deleteResult(id);
-      setScores((prev)      => ({ ...prev,      [studentId]: { reopen: "", ca: "", exams: "" } }));
+      setScores((prev)      => ({ ...prev,      [studentId]: emptyResult() }));
       setExistingIds((prev) => { const n = { ...prev }; delete n[studentId]; return n; });
-      setBreakdowns((prev)  => { const n = { ...prev }; delete n[studentId]; return n; });
       setSuccess("Result deleted.");
     } catch {
       setError("Failed to delete result.");
@@ -361,13 +359,11 @@ export function useResults() {
 
   const reset = useCallback(() => {
     setScores({});
-    setBreakdowns({});
     setExistingIds({});
   }, []);
 
   return {
     scores,
-    breakdowns,
     existingIds,
     saving,
     deleting,

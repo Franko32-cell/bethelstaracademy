@@ -5,6 +5,7 @@ import {
   saveRemarks,
   fetchClasses,
 } from "../Teacherportalservice";
+import { isExamOnly, scoreResult } from "../../../utils/sbaScoring";
 
 const EMPTY_REMARKS = {
   conduct: "",
@@ -27,9 +28,9 @@ const PROMOTION_OPTIONS = [
 const ReportsTab = ({
   students = [],
   selectedClassName = "",
-  selectedClass = "",
   selectedTerm = "",
   selectedYear = "",
+  selectedClassLevel = "basic_7_9",
 }) => {
   const [selectedStudentId, setSelectedStudentId] = useState("");
   const [report, setReport] = useState(null);
@@ -294,24 +295,45 @@ const ReportsTab = ({
                     <thead>
                       <tr className="bg-slate-50 text-slate-500">
                         <th className="px-4 py-3">Subject</th>
-                        <th className="px-4 py-3">CA</th>
-                        <th className="px-4 py-3">Exam</th>
+                        {isExamOnly(selectedClassLevel) ? (
+                          <th className="px-4 py-3">Exam /100</th>
+                        ) : (
+                          <>
+                            <th className="px-4 py-3">Test 1</th>
+                            <th className="px-4 py-3">Group Work</th>
+                            <th className="px-4 py-3">Test 2</th>
+                            <th className="px-4 py-3">SBA /50</th>
+                            <th className="px-4 py-3">Exam /50</th>
+                          </>
+                        )}
                         <th className="px-4 py-3">Total</th>
                         <th className="px-4 py-3">Grade</th>
                         <th className="px-4 py-3">Remark</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {report.subjects.map((subject) => (
+                      {report.subjects.map((subject) => {
+                        const metrics = scoreResult(subject, selectedClassLevel);
+                        return (
                         <tr key={subject.subject} className="border-t border-slate-100">
                           <td className="px-4 py-3 text-slate-700">{subject.subject}</td>
-                          <td className="px-4 py-3 text-slate-700">{subject.ca ?? "—"}</td>
-                          <td className="px-4 py-3 text-slate-700">{subject.exams ?? "—"}</td>
+                          {isExamOnly(selectedClassLevel) ? (
+                            <td className="px-4 py-3 text-slate-700">{subject.exam ?? "—"}</td>
+                          ) : (
+                            <>
+                              <td className="px-4 py-3 text-slate-700">{subject.test1 ?? "—"}</td>
+                              <td className="px-4 py-3 text-slate-700">{subject.group_work ?? "—"}</td>
+                              <td className="px-4 py-3 text-slate-700">{subject.test2 ?? "—"}</td>
+                              <td className="px-4 py-3 text-slate-700">{metrics.sba.toFixed(1)}</td>
+                              <td className="px-4 py-3 text-slate-700">{metrics.examScore.toFixed(1)}</td>
+                            </>
+                          )}
                           <td className="px-4 py-3 text-slate-700">{subject.score ?? "—"}</td>
                           <td className="px-4 py-3 text-slate-700">{subject.grade ?? "—"}</td>
                           <td className="px-4 py-3 text-slate-700">{subject.remark ?? "—"}</td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

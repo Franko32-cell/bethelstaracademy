@@ -2,6 +2,7 @@
 
 import React from "react";
 import { GRADE_REMARK } from "../constants";
+import { isExamOnly, scoreResult } from "../../../utils/sbaScoring";
 
 export const GradeBadge = ({ grade }) => {
   const c = GRADE_REMARK[grade];
@@ -68,9 +69,17 @@ export const SubjectTable = ({ report }) => (
         <thead>
           <tr>
             <th style={{ textAlign: "left", padding: "10px 14px" }}>Subject</th>
-            <th className="c">Re-Open<br /><span style={{ fontSize: "9px", fontWeight: 400, textTransform: "none" }}>/ 20</span></th>
-            <th className="c">CA / MGT<br /><span style={{ fontSize: "9px", fontWeight: 400, textTransform: "none" }}>/ 40</span></th>
-            <th className="c">Exams<br /><span style={{ fontSize: "9px", fontWeight: 400, textTransform: "none" }}>/ 40</span></th>
+            {isExamOnly(report.level) ? (
+              <th className="c">Exam<br /><span style={{ fontSize: "9px", fontWeight: 400, textTransform: "none" }}>/ 100</span></th>
+            ) : (
+              <>
+                <th className="c">Test 1<br /><span style={{ fontSize: "9px", fontWeight: 400, textTransform: "none" }}>/ 20</span></th>
+                <th className="c">Group Work<br /><span style={{ fontSize: "9px", fontWeight: 400, textTransform: "none" }}>/ 20</span></th>
+                <th className="c">Test 2<br /><span style={{ fontSize: "9px", fontWeight: 400, textTransform: "none" }}>/ 20</span></th>
+                <th className="c">SBA<br /><span style={{ fontSize: "9px", fontWeight: 400, textTransform: "none" }}>/ 50</span></th>
+                <th className="c">Exam<br /><span style={{ fontSize: "9px", fontWeight: 400, textTransform: "none" }}>/ 50</span></th>
+              </>
+            )}
             <th className="c">Total<br /><span style={{ fontSize: "9px", fontWeight: 400, textTransform: "none" }}>/ 100</span></th>
             {report.show_position && <th className="c">Pos</th>}
             <th className="c">Grade</th>
@@ -78,18 +87,29 @@ export const SubjectTable = ({ report }) => (
           </tr>
         </thead>
         <tbody>
-          {report.subjects?.map((sub, i) => (
+          {report.subjects?.map((sub, i) => {
+            const metrics = scoreResult(sub, report.level);
+            return (
             <tr key={i}>
               <td style={{ fontWeight: "600", color: "#1e293b" }}>{sub.subject}</td>
-              <td className="c"><span className="sp-muted" style={{ fontFamily: "'DM Mono',monospace" }}>{sub.reopen ?? "—"}</span></td>
-              <td className="c"><span className="sp-muted" style={{ fontFamily: "'DM Mono',monospace" }}>{sub.ca ?? "—"}</span></td>
-              <td className="c"><span className="sp-muted" style={{ fontFamily: "'DM Mono',monospace" }}>{sub.exams ?? "—"}</span></td>
+              {isExamOnly(report.level) ? (
+                <td className="c"><span className="sp-muted" style={{ fontFamily: "'DM Mono',monospace" }}>{sub.exam ?? "—"}</span></td>
+              ) : (
+                <>
+                  <td className="c"><span className="sp-muted" style={{ fontFamily: "'DM Mono',monospace" }}>{sub.test1 ?? "—"}</span></td>
+                  <td className="c"><span className="sp-muted" style={{ fontFamily: "'DM Mono',monospace" }}>{sub.group_work ?? "—"}</span></td>
+                  <td className="c"><span className="sp-muted" style={{ fontFamily: "'DM Mono',monospace" }}>{sub.test2 ?? "—"}</span></td>
+                  <td className="c"><span className="sp-muted" style={{ fontFamily: "'DM Mono',monospace" }}>{metrics.sba.toFixed(1)}</span></td>
+                  <td className="c"><span className="sp-muted" style={{ fontFamily: "'DM Mono',monospace" }}>{metrics.examScore.toFixed(1)}</span></td>
+                </>
+              )}
               <td className="c sp-score">{sub.score}</td>
               {report.show_position && <td className="c" style={{ fontWeight: "600", color: "#64748b" }}>{sub.subject_position ?? "—"}</td>}
               <td className="c"><GradeBadge grade={sub.grade} /></td>
               <td className="c"><RemarkBadge grade={sub.grade} /></td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>

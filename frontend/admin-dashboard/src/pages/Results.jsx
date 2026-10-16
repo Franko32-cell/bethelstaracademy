@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import API from "../services/api";
+import { emptyResult, isExamOnly, SBA_COMPONENTS, scoreResult } from "../utils/sbaScoring";
 
 /* ─────────────────────────────────────────────
    Constants
@@ -10,15 +11,9 @@ const TERMS = [
   { value: "term3", label: "Term 3" },
 ];
 
-// FIX: was "term3" — stale after the school moved on to Term 1 2026.
-// NOTE: this constant ONLY controls (a) the initial dropdown selection on
-// page load and (b) the cosmetic "(current)" label / green header badge.
-// It does NOT restrict which term can be selected, edited, or saved —
-// the TERMS dropdown always lists all three terms, and submitResults()/
-// the bulk-save API call send whatever term/year is currently selected
-// with no gating at all. Editing a past term (e.g. Term 3 2026) has
-// always been fully supported; only the default/"current" label was wrong.
-const CURRENT_TERM = "term1";
+// This controls the initial selection and the cosmetic current-term labels;
+// teachers can still select and edit any term.
+const CURRENT_TERM = "term3";
 const CURRENT_YEAR = 2026;
 const YEARS = [2026, 2025, 2024, 2023, 2022];
 
@@ -69,13 +64,6 @@ const GRADE_SCALE_B16 = [
 /* ─────────────────────────────────────────────
    Pure helpers (stable, no hooks)
 ───────────────────────────────────────────── */
-const computeScore = (reopen, ca, exams) => {
-  const r = parseFloat(reopen) || 0;
-  const c = parseFloat(ca)     || 0;
-  const e = parseFloat(exams)  || 0;
-  return Math.round((r + c + e) * 10) / 10;
-};
-
 const computeGrade = (score, level = "basic_7_9") => {
   if (level === "basic_7_9") {
     if (score >= 90) return "1"; if (score >= 80) return "2";
@@ -111,26 +99,11 @@ const avatarHue = (id) => {
 };
 
 /* ─────────────────────────────────────────────
-   Score breakdown helpers
-───────────────────────────────────────────── */
-const calcReopenScore  = (b) => Math.round((Math.min(10, parseFloat(b.reopen_raw) || 0) + Math.min(10, parseFloat(b.rda) || 0)) * 10) / 10;
-const calcCAonly       = (b) => {
-  const hw = ["hw1","hw2","hw3","hw4"].reduce((s,k) => s + (parseFloat(b[k]) || 0), 0);
-  const cw = ["cw1","cw2","cw3","cw4"].reduce((s,k) => s + (parseFloat(b[k]) || 0), 0);
-  const ct = ["ct1","ct2","ct3","ct4"].reduce((s,k) => s + (parseFloat(b[k]) || 0), 0);
-  return Math.round(((hw + cw + ct) / 110) * 25 * 10) / 10;
-};
-const calcMGTScore    = (b) => Math.round(Math.min(15, parseFloat(b.mgt_raw) || 0) * 10) / 10;
-const calcCAScore     = (b) => Math.round((calcCAonly(b) + calcMGTScore(b)) * 10) / 10;
-const calcExamsScore  = (b) => Math.round(((parseFloat(b.exam_raw) || 0) / 100) * 40 * 10) / 10;
-
-/* ─────────────────────────────────────────────
    Empty student state factory
 ───────────────────────────────────────────── */
 const emptyStudentState = () => ({
-  reopen: "", ca: "", exams: "",   // live scores
-  savedReopen: "", savedCa: "", savedExams: "",  // server baseline
-  rkBreakdown: null, caBreakdown: null, exBreakdown: null,
+  ...emptyResult(),
+  savedTest1: "", savedGroupWork: "", savedTest2: "", savedExam: "",
   existingId: null,
   touched: false,
 });
@@ -309,7 +282,7 @@ const STYLES = `
   .res-table-card {
     background:var(--white); border-radius:var(--radius);
     box-shadow:var(--shadow-sm); border:1px solid var(--line);
-    overflow:hidden;
+    overflow-x:auto;
   }
   .res-table { width:100%; border-collapse:collapse; font-size:13px; }
   .res-table thead tr { background:var(--ink-2); }
@@ -726,27 +699,11 @@ function useToast() {
 /* ─────────────────────────────────────────────
    Reusable icons
 ───────────────────────────────────────────── */
-const IconEdit = () => (
-  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-    <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-    <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
-  </svg>
-);
-const IconAdd = () => (
-  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-    <circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/>
-  </svg>
-);
 const IconSave = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
     <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
     <polyline points="17 21 17 13 7 13 7 21"/>
     <polyline points="7 3 7 8 15 8"/>
-  </svg>
-);
-const IconCheck = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-    <polyline points="20 6 9 17 4 12"/>
   </svg>
 );
 const IconTrash = () => (
@@ -832,354 +789,6 @@ function DeleteConfirm({ studentName, onConfirm, onCancel, deleting }) {
 }
 
 /* ─────────────────────────────────────────────
-   Modal shell — shared header/footer layout
-───────────────────────────────────────────── */
-function ModalShell({ title, subtitle, maxWidth = 500, onClose, onApply, applyLabel, children }) {
-  // Close on Escape
-  useEffect(() => {
-    const handler = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-
-  return (
-    <div className="res-modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="res-modal" style={{ maxWidth }} role="dialog" aria-modal="true">
-        <div className="res-modal-header">
-          <div className="res-modal-header-left">
-            <p className="res-modal-title">{title}</p>
-            {subtitle && <p className="res-modal-subtitle">{subtitle}</p>}
-          </div>
-          <button className="res-modal-close" onClick={onClose} aria-label="Close">✕</button>
-        </div>
-        <div className="res-modal-body">{children}</div>
-        <div className="res-modal-footer">
-          <button className="res-modal-btn-cancel" onClick={onClose}>Cancel</button>
-          <button className="res-modal-btn-apply" onClick={onApply}>
-            <IconCheck />{applyLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ─────────────────────────────────────────────
-   REOPEN MODAL
-───────────────────────────────────────────── */
-function ReopenModal({ studentName, initial, savedScore, onApply, onClose }) {
-  const [vals, setVals] = useState({
-    reopen_raw: initial?.reopen_raw ?? "",
-    rda:        initial?.rda        ?? "",
-  });
-  const set   = (k) => (e) => setVals(p => ({ ...p, [k]: Math.min(10, Math.max(0, parseFloat(e.target.value) || 0)) }));
-  const score = calcReopenScore(vals);
-
-  return (
-    <ModalShell
-      title="Re-Open Score"
-      subtitle={`${studentName}${savedScore != null ? ` · saved: ${savedScore}` : ""}`}
-      maxWidth={400}
-      onClose={onClose}
-      onApply={() => onApply(score, vals)}
-      applyLabel={`Apply ${score.toFixed(1)} / 20`}
-    >
-      <div className="res-modal-preview">
-        <div className="res-modal-preview-item">
-          <span className="res-modal-preview-final">{score.toFixed(1)}</span>
-          <span className="res-modal-preview-max">/ 20</span>
-        </div>
-        <div className="res-modal-preview-item" style={{ marginLeft: "auto", alignItems: "flex-end" }}>
-          <span style={{ fontSize: "10px", color: "rgba(255,255,255,.4)" }}>Formula</span>
-          <span style={{ fontSize: "11px", color: "rgba(255,255,255,.5)", fontFamily: "'JetBrains Mono',monospace" }}>
-            Re-Open/10 + RDA/10
-          </span>
-        </div>
-      </div>
-      <div className="res-modal-section">
-        <div className="res-modal-section-label">
-          Re-Open Assessment
-          <span className="res-pill res-pill-blue">max 20 marks</span>
-        </div>
-        <div className="res-modal-inputs">
-          <div className="res-modal-field">
-            <label>Re-Open <span style={{ color: "#94a3b8", fontWeight: 400 }}>/10</span></label>
-            <input type="number" min="0" max="10" step="0.5" placeholder="0"
-              value={vals.reopen_raw} onChange={set("reopen_raw")} autoFocus />
-          </div>
-          <div style={{ display: "flex", alignItems: "center", paddingTop: "18px", color: "#cbd5e1", fontWeight: "700" }}>+</div>
-          <div className="res-modal-field">
-            <label>RDA <span style={{ color: "#94a3b8", fontWeight: 400 }}>/10</span></label>
-            <input type="number" min="0" max="10" step="0.5" placeholder="0"
-              value={vals.rda} onChange={set("rda")} />
-          </div>
-          <div style={{ display: "flex", alignItems: "center", paddingTop: "18px", color: "#cbd5e1", fontWeight: "700" }}>=</div>
-          <div className="res-modal-field">
-            <label style={{ color: "var(--blue)" }}>Total /20</label>
-            <input readOnly value={score.toFixed(1)} />
-          </div>
-        </div>
-      </div>
-    </ModalShell>
-  );
-}
-
-/* ─────────────────────────────────────────────
-   CA / MGT MODAL
-───────────────────────────────────────────── */
-function CAModal({ studentName, initial, savedScore, onApply, onClose }) {
-  const [vals, setVals] = useState({
-    hw1: initial?.hw1 ?? "", hw2: initial?.hw2 ?? "", hw3: initial?.hw3 ?? "", hw4: initial?.hw4 ?? "",
-    cw1: initial?.cw1 ?? "", cw2: initial?.cw2 ?? "", cw3: initial?.cw3 ?? "", cw4: initial?.cw4 ?? "",
-    ct1: initial?.ct1 ?? "", ct2: initial?.ct2 ?? "", ct3: initial?.ct3 ?? "", ct4: initial?.ct4 ?? "",
-    mgt_raw: initial?.mgt_raw ?? "",
-  });
-
-  const clampSet = (k, max) => (e) =>
-    setVals(p => ({ ...p, [k]: Math.min(max, Math.max(0, parseFloat(e.target.value) || 0)) }));
-
-  const num       = (k) => parseFloat(vals[k]) || 0;
-  const hwTotal   = num("hw1") + num("hw2") + num("hw3") + num("hw4");
-  const cwTotal   = num("cw1") + num("cw2") + num("cw3") + num("cw4");
-  const ctTotal   = num("ct1") + num("ct2") + num("ct3") + num("ct4");
-  const caOnly    = calcCAonly(vals);
-  const mgtScore  = calcMGTScore(vals);
-  const combined  = calcCAScore(vals);
-
-  const ReadonlyTotal = ({ val, max }) => (
-    <div className="res-modal-field" style={{ flex: "none", width: "72px" }}>
-      <input readOnly value={val.toFixed(1)} />
-      <label style={{ color: "#94a3b8", fontSize: "10px", textAlign: "center" }}>/{max}</label>
-    </div>
-  );
-
-  return (
-    <ModalShell
-      title="CA / MGT Score"
-      subtitle={`${studentName}${savedScore != null ? ` · saved: ${savedScore}` : ""} · CA(25%) + MGT(15%) = 40%`}
-      maxWidth={580}
-      onClose={onClose}
-      onApply={() => onApply(combined, vals)}
-      applyLabel={`Apply ${combined.toFixed(1)} / 40`}
-    >
-      {/* Live preview */}
-      <div className="res-modal-preview">
-        <div className="res-modal-preview-item">
-          <span style={{ fontSize: "13px", color: "rgba(255,255,255,.7)", fontFamily: "'JetBrains Mono',monospace" }}>{caOnly.toFixed(1)}/25</span>
-          <span className="res-modal-preview-label">CA scaled</span>
-        </div>
-        <span className="res-modal-preview-arrow">+</span>
-        <div className="res-modal-preview-item">
-          <span style={{ fontSize: "13px", color: "#c4b5fd", fontFamily: "'JetBrains Mono',monospace" }}>{mgtScore.toFixed(1)}/15</span>
-          <span className="res-modal-preview-label">MGT</span>
-        </div>
-        <span className="res-modal-preview-arrow">=</span>
-        <div className="res-modal-preview-item">
-          <span className="res-modal-preview-final">{combined.toFixed(1)}</span>
-          <span className="res-modal-preview-max">/ 40</span>
-        </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: "10px" }}>
-          {[["HW", hwTotal, 20], ["CW", cwTotal, 40], ["CT", ctTotal, 50]].map(([l, v, m]) => (
-            <div key={l} className="res-modal-preview-item">
-              <span style={{ fontSize: "11px", color: "rgba(255,255,255,.5)", fontFamily: "'JetBrains Mono',monospace" }}>{v.toFixed(1)}/{m}</span>
-              <span className="res-modal-preview-label">{l} raw</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* CA section */}
-      <div className="res-modal-section">
-        <div className="res-modal-section-label">
-          <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            Continuous Assessment <span className="res-pill res-pill-blue">scaled to /25</span>
-          </span>
-          <span style={{ fontWeight: 400, color: "#94a3b8" }}>raw total /110</span>
-        </div>
-
-        {/* Homework */}
-        <div style={{ marginBottom: "8px" }}>
-          <div style={{ fontSize: "10px", color: "#94a3b8", fontWeight: "600", marginBottom: "4px", textTransform: "uppercase", letterSpacing: ".5px" }}>
-            Homework — 4 × /5 = /20
-          </div>
-          <div className="res-modal-inputs" style={{ alignItems: "flex-start" }}>
-            {["hw1","hw2","hw3","hw4"].map((k, i) => (
-              <div className="res-modal-field" key={k}>
-                <label>HW {i + 1}</label>
-                <input type="number" min="0" max="5" step="0.5" placeholder="0" value={vals[k]} onChange={clampSet(k, 5)} />
-              </div>
-            ))}
-            <div style={{ display: "flex", alignItems: "center", paddingTop: "18px", color: "#cbd5e1", fontWeight: "700" }}>=</div>
-            <ReadonlyTotal val={hwTotal} max={20} />
-          </div>
-        </div>
-
-        {/* Classwork */}
-        <div style={{ marginBottom: "8px" }}>
-          <div style={{ fontSize: "10px", color: "#94a3b8", fontWeight: "600", marginBottom: "4px", textTransform: "uppercase", letterSpacing: ".5px" }}>
-            Classwork — 4 × /10 = /40
-          </div>
-          <div className="res-modal-inputs" style={{ alignItems: "flex-start" }}>
-            {["cw1","cw2","cw3","cw4"].map((k, i) => (
-              <div className="res-modal-field" key={k}>
-                <label>CW {i + 1}</label>
-                <input type="number" min="0" max="10" step="0.5" placeholder="0" value={vals[k]} onChange={clampSet(k, 10)} />
-              </div>
-            ))}
-            <div style={{ display: "flex", alignItems: "center", paddingTop: "18px", color: "#cbd5e1", fontWeight: "700" }}>=</div>
-            <ReadonlyTotal val={cwTotal} max={40} />
-          </div>
-        </div>
-
-        {/* Class tests */}
-        <div>
-          <div style={{ fontSize: "10px", color: "#94a3b8", fontWeight: "600", marginBottom: "4px", textTransform: "uppercase", letterSpacing: ".5px" }}>
-            Class Tests — 10+10+10+20 = /50
-          </div>
-          <div className="res-modal-inputs" style={{ alignItems: "flex-start" }}>
-            {[["ct1",10],["ct2",10],["ct3",10],["ct4",20]].map(([k, max], i) => (
-              <div className="res-modal-field" key={k}>
-                <label>CT{i + 1} /{max}</label>
-                <input type="number" min="0" max={max} step="0.5" placeholder="0" value={vals[k]} onChange={clampSet(k, max)} />
-              </div>
-            ))}
-            <div style={{ display: "flex", alignItems: "center", paddingTop: "18px", color: "#cbd5e1", fontWeight: "700" }}>=</div>
-            <ReadonlyTotal val={ctTotal} max={50} />
-          </div>
-        </div>
-
-        {/* CA scaled result */}
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 12px", background: "var(--blue-l)", borderRadius: "8px", border: "1px solid #bfdbfe" }}>
-          <span style={{ fontSize: "12px", color: "#64748b" }}>
-            CA raw ({(hwTotal + cwTotal + ctTotal).toFixed(1)}/110) scaled to
-          </span>
-          <span style={{ fontFamily: "'JetBrains Mono',monospace", fontWeight: "700", color: "var(--blue-d)", fontSize: "15px" }}>
-            {caOnly.toFixed(1)} / 25
-          </span>
-        </div>
-      </div>
-
-      <div className="res-divider" />
-
-      {/* MGT section */}
-      <div className="res-modal-section">
-        <div className="res-modal-section-label">
-          <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            MGT Test <span className="res-pill res-pill-purple">direct /15</span>
-          </span>
-        </div>
-        <div className="res-modal-inputs">
-          <div className="res-modal-field" style={{ flex: "none", width: "130px" }}>
-            <label>MGT Score <span style={{ color: "#94a3b8", fontWeight: 400 }}>/15</span></label>
-            <input type="number" min="0" max="15" step="0.5" placeholder="0" value={vals.mgt_raw}
-              style={{ fontSize: "22px", padding: "10px" }}
-              onChange={clampSet("mgt_raw", 15)} />
-          </div>
-        </div>
-      </div>
-
-      {/* Combined total */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "var(--green-l)", borderRadius: "10px", border: "1px solid #bbf7d0" }}>
-        <span style={{ fontSize: "13px", color: "#166534", fontWeight: "600" }}>CA + MGT Combined Total</span>
-        <span style={{ fontFamily: "'JetBrains Mono',monospace", fontWeight: "800", color: "#166534", fontSize: "18px" }}>
-          {combined.toFixed(1)} / 40
-        </span>
-      </div>
-    </ModalShell>
-  );
-}
-
-/* ─────────────────────────────────────────────
-   EXAMS MODAL
-───────────────────────────────────────────── */
-function ExamsModal({ studentName, initial, savedScore, onApply, onClose }) {
-  const [examRaw, setExamRaw] = useState(initial?.exam_raw ?? "");
-  const raw   = parseFloat(examRaw) || 0;
-  const score = Math.round((raw / 100) * 40 * 10) / 10;
-
-  return (
-    <ModalShell
-      title="Examination Score"
-      subtitle={`${studentName}${savedScore != null ? ` · saved: ${savedScore}` : ""}`}
-      maxWidth={380}
-      onClose={onClose}
-      onApply={() => onApply(score, { exam_raw: raw })}
-      applyLabel={`Apply ${score.toFixed(1)} / 40`}
-    >
-      <div className="res-modal-preview">
-        <div className="res-modal-preview-item">
-          <span className="res-modal-preview-value">{raw.toFixed(1)}</span>
-          <span className="res-modal-preview-label">Raw /100</span>
-        </div>
-        <span className="res-modal-preview-arrow">→</span>
-        <div className="res-modal-preview-item">
-          <span className="res-modal-preview-final">{score.toFixed(1)}</span>
-          <span className="res-modal-preview-max">/ 40</span>
-        </div>
-        <div className="res-modal-preview-item" style={{ marginLeft: "auto", alignItems: "flex-end" }}>
-          <span style={{ fontSize: "10px", color: "rgba(255,255,255,.4)" }}>Formula</span>
-          <span style={{ fontSize: "11px", color: "rgba(255,255,255,.5)", fontFamily: "'JetBrains Mono',monospace" }}>(raw/100)×40</span>
-        </div>
-      </div>
-      <div className="res-modal-section">
-        <div className="res-modal-section-label">
-          Exam Score <span style={{ fontWeight: 400, color: "#94a3b8" }}>raw mark out of 100</span>
-        </div>
-        <div className="res-modal-inputs">
-          <div className="res-modal-field" style={{ flex: "none", width: "130px" }}>
-            <label>Raw Mark /100</label>
-            <input type="number" min="0" max="100" step="0.5" placeholder="0" value={examRaw}
-              style={{ fontSize: "26px", padding: "12px 10px" }} autoFocus
-              onChange={e => setExamRaw(Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))} />
-          </div>
-          <div style={{ display: "flex", alignItems: "center", paddingTop: "18px", color: "#cbd5e1", fontWeight: "700", fontSize: "20px" }}>→</div>
-          <div className="res-modal-field" style={{ flex: "none", width: "90px" }}>
-            <label>Scaled /40</label>
-            <input readOnly value={score.toFixed(1)}
-              style={{ fontSize: "26px", padding: "12px 10px" }} />
-          </div>
-        </div>
-      </div>
-    </ModalShell>
-  );
-}
-
-/* ─────────────────────────────────────────────
-   ScoreCell — extracted, memoized
-───────────────────────────────────────────── */
-const ScoreCell = React.memo(function ScoreCell({
-  field, value, savedValue, breakdown, breakdownLabel,
-  max, onOpen,
-}) {
-  const isDirty    = String(value ?? "") !== String(savedValue ?? "") && value !== "";
-  const isEmpty    = value === "" || value === 0;
-  const isMax      = !isEmpty && parseFloat(value) === max;
-
-  const btnClass = isEmpty
-    ? "res-score-btn-empty"
-    : isMax
-      ? "res-score-btn-max"
-      : isDirty
-        ? "res-score-btn-dirty"
-        : "res-score-btn-filled";
-
-  return (
-    <div className="res-score-cell">
-      <button className={`res-score-btn ${btnClass}`} onClick={onOpen}>
-        {isDirty && <span className="res-dirty-dot" aria-hidden="true" />}
-        {isEmpty ? <><IconAdd />Enter</> : <><IconEdit />{parseFloat(value).toFixed(1)}</>}
-      </button>
-      {breakdown && (
-        <span className="res-score-breakdown" title={breakdownLabel}>{breakdown}</span>
-      )}
-      {isDirty && savedValue !== "" && (
-        <span style={{ fontSize: "10px", color: "var(--dim)" }}>was: {savedValue}</span>
-      )}
-    </div>
-  );
-});
-
-/* ─────────────────────────────────────────────
    Main component
 ───────────────────────────────────────────── */
 const Results = () => {
@@ -1201,7 +810,6 @@ const Results = () => {
   const [classes, setClasses]       = useState([]);
   const [subjects, setSubjects]     = useState([]);
   const [students, setStudents]     = useState([]);
-  const [modal, setModal]           = useState(null);       // { type, studentId, studentName }
   const [expandedStudent, setExpandedStudent] = useState(null);
   const [deleteTarget, setDeleteTarget]       = useState(null); // { studentId, studentName }
 
@@ -1215,15 +823,13 @@ const Results = () => {
   /*
    * ── Unified per-student state map ──────────────────────────────────────
    *
-   * Instead of 5 parallel Maps (scores, savedScores, breakdowns, existingIds,
+   * Instead of parallel score maps and existingIds,
    * touchedStudents), we keep a single map:
    *
    *   studentState: { [studentId]: {
-   *     reopen, ca, exams,           ← live scores
-   *     savedReopen, savedCa, savedExams, ← last server-confirmed values
-   *     rkBreakdown, caBreakdown, exBreakdown,
-   *     existingId,
-   *     touched,
+   *     test1, group_work, test2, exam,
+   *     savedTest1, savedGroupWork, savedTest2, savedExam,
+   *     existingId, touched,
    *   }}
    *
    * This means every update is one setState call and there are no stale-
@@ -1295,7 +901,12 @@ const Results = () => {
       const serverMap = {};
       const idMap     = {};
       records.forEach(r => {
-        serverMap[r.student] = { reopen: r.reopen ?? "", ca: r.ca ?? "", exams: r.exams ?? "" };
+        serverMap[r.student] = {
+          test1: r.test1 ?? "",
+          group_work: r.group_work ?? "",
+          test2: r.test2 ?? "",
+          exam: r.exam ?? "",
+        };
         idMap[r.student]     = r.id;
       });
 
@@ -1304,21 +915,23 @@ const Results = () => {
       setStudentState(prev => {
         const next = {};
         studentList.forEach(s => {
-          const sv  = serverMap[s.id] || { reopen: "", ca: "", exams: "" };
+          const sv  = serverMap[s.id] || emptyResult();
           const cur = prev[s.id]      || emptyStudentState();
           const isTouched = touched.has(String(s.id));
 
           next[s.id] = {
             ...cur,
             // Server values become the new saved baseline
-            savedReopen: sv.reopen,
-            savedCa:     sv.ca,
-            savedExams:  sv.exams,
-            existingId:  idMap[s.id] ?? null,
+            savedTest1: sv.test1,
+            savedGroupWork: sv.group_work,
+            savedTest2: sv.test2,
+            savedExam: sv.exam,
+            existingId: idMap[s.id] ?? null,
             // Live scores: protect touched students, server wins for untouched
-            reopen: isTouched && cur.reopen !== "" ? cur.reopen : sv.reopen,
-            ca:     isTouched && cur.ca     !== "" ? cur.ca     : sv.ca,
-            exams:  isTouched && cur.exams  !== "" ? cur.exams  : sv.exams,
+            test1: isTouched ? cur.test1 : sv.test1,
+            group_work: isTouched ? cur.group_work : sv.group_work,
+            test2: isTouched ? cur.test2 : sv.test2,
+            exam: isTouched ? cur.exam : sv.exam,
           };
         });
         return next;
@@ -1363,24 +976,16 @@ const Results = () => {
     // studentState reset is handled by the filter-change useEffect
   }, [classes]);
 
-  /* ── Unified modal apply handler ── */
-  const applyScore = useCallback((field, bdField, score, breakdown) => {
-    const { studentId } = modal;
+  const updateComponent = useCallback((studentId, field, value) => {
     setStudentState(prev => ({
       ...prev,
       [studentId]: {
         ...(prev[studentId] || emptyStudentState()),
-        [field]:   score,
-        [bdField]: breakdown,
+        [field]: value,
         touched:   true,
       },
     }));
-    setModal(null);
-  }, [modal]);
-
-  const applyReopen = useCallback((score, bd) => applyScore("reopen", "rkBreakdown", score, bd), [applyScore]);
-  const applyCA     = useCallback((score, bd) => applyScore("ca",     "caBreakdown", score, bd), [applyScore]);
-  const applyExams  = useCallback((score, bd) => applyScore("exams",  "exBreakdown", score, bd), [applyScore]);
+  }, []);
 
   /* ── Row-level undo ── */
   const undoStudent = useCallback((studentId) => {
@@ -1390,9 +995,10 @@ const Results = () => {
         ...prev,
         [studentId]: {
           ...cur,
-          reopen:  cur.savedReopen,
-          ca:      cur.savedCa,
-          exams:   cur.savedExams,
+          test1: cur.savedTest1,
+          group_work: cur.savedGroupWork,
+          test2: cur.savedTest2,
+          exam: cur.savedExam,
           touched: false,
         },
       };
@@ -1440,19 +1046,38 @@ const Results = () => {
     const records = students
       .map(s => {
         const st  = studentState[s.id] || {};
-        const sv  = { reopen: st.savedReopen ?? "", ca: st.savedCa ?? "", exams: st.savedExams ?? "" };
-        const cur = { reopen: st.reopen      ?? "", ca: st.ca      ?? "", exams: st.exams      ?? "" };
-        const hasValue = cur.reopen !== "" || cur.ca !== "" || cur.exams !== "";
+        const cur = {
+          test1: st.test1 ?? "",
+          group_work: st.group_work ?? "",
+          test2: st.test2 ?? "",
+          exam: st.exam ?? "",
+        };
+        const hasValue = Object.values(cur).some(value => value !== "");
         if (!hasValue) return null;
+        const components = isExamOnly(classLevel)
+          ? { test1: 0, group_work: 0, test2: 0, exam: parseFloat(cur.exam) || 0 }
+          : Object.fromEntries(
+              SBA_COMPONENTS.map(({ key }) => [
+                key,
+                parseFloat(cur[key]) || 0,
+              ])
+            );
+        const invalid = SBA_COMPONENTS.some(({ key, max }) =>
+          key === "exam" || !isExamOnly(classLevel)
+            ? components[key] < 0 || components[key] > max
+            : false
+        );
+        if (invalid) {
+          toast(`${getStudentName(s)} has a mark outside its allowed range.`, "error");
+          return null;
+        }
         return {
           student:      s.id,
           subject:      subjectId,
           school_class: classId,
           term:         selectedTerm,
           year:         yearInt,
-          reopen: parseFloat(cur.reopen !== "" ? cur.reopen : (sv.reopen || 0)),
-          ca:     parseFloat(cur.ca     !== "" ? cur.ca     : (sv.ca     || 0)),
-          exams:  parseFloat(cur.exams  !== "" ? cur.exams  : (sv.exams  || 0)),
+          ...components,
         };
       })
       .filter(Boolean);
@@ -1486,7 +1111,7 @@ const Results = () => {
     } finally {
       setSaving(false);
     }
-  }, [selectedClass, selectedTerm, selectedSubject, selectedYear, students, studentState, loadExistingScores]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedClass, selectedTerm, selectedSubject, selectedYear, classLevel, students, studentState, loadExistingScores]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Derived state (memoized) ── */
   const {
@@ -1496,15 +1121,16 @@ const Results = () => {
     const dirtyCount  = students.filter(s => {
       const st = studentState[s.id] || {};
       return (
-        String(st.reopen ?? "") !== String(st.savedReopen ?? "") ||
-        String(st.ca     ?? "") !== String(st.savedCa     ?? "") ||
-        String(st.exams  ?? "") !== String(st.savedExams  ?? "")
+        String(st.test1 ?? "") !== String(st.savedTest1 ?? "") ||
+        String(st.group_work ?? "") !== String(st.savedGroupWork ?? "") ||
+        String(st.test2 ?? "") !== String(st.savedTest2 ?? "") ||
+        String(st.exam ?? "") !== String(st.savedExam ?? "")
       );
     }).length;
 
     const filledCount = students.filter(s => {
       const st = studentState[s.id] || {};
-      return st.reopen !== "" || st.ca !== "" || st.exams !== "";
+      return [st.test1, st.group_work, st.test2, st.exam].some(value => value !== "");
     }).length;
 
     const savedCount = students.filter(s => !!studentState[s.id]?.existingId).length;
@@ -1529,35 +1155,6 @@ const Results = () => {
   ───────────────────────────────────────────── */
   return (
     <div className="res-root">
-
-      {/* Modals */}
-      {modal?.type === "reopen" && (
-        <ReopenModal
-          studentName={modal.studentName}
-          initial={studentState[modal.studentId]?.rkBreakdown}
-          savedScore={studentState[modal.studentId]?.savedReopen !== "" ? studentState[modal.studentId]?.savedReopen : null}
-          onApply={applyReopen}
-          onClose={() => setModal(null)}
-        />
-      )}
-      {modal?.type === "ca" && (
-        <CAModal
-          studentName={modal.studentName}
-          initial={studentState[modal.studentId]?.caBreakdown}
-          savedScore={studentState[modal.studentId]?.savedCa !== "" ? studentState[modal.studentId]?.savedCa : null}
-          onApply={applyCA}
-          onClose={() => setModal(null)}
-        />
-      )}
-      {modal?.type === "exams" && (
-        <ExamsModal
-          studentName={modal.studentName}
-          initial={studentState[modal.studentId]?.exBreakdown}
-          savedScore={studentState[modal.studentId]?.savedExams !== "" ? studentState[modal.studentId]?.savedExams : null}
-          onApply={applyExams}
-          onClose={() => setModal(null)}
-        />
-      )}
 
       {/* Delete confirm dialog */}
       {deleteTarget && (
@@ -1711,7 +1308,7 @@ const Results = () => {
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/>
                     </svg>
-                    Click any score cell to enter breakdown
+                    Enter marks directly; totals update as you type
                   </div>
                 </div>
 
@@ -1730,12 +1327,13 @@ const Results = () => {
 
                 {/* Scoring guide */}
                 <div className="res-score-guide" aria-label="Score breakdown guide">
-                  {[
-                    { label: "Re-Open", color: "#3b82f6", detail: "Re-Open/10 + RDA/10 = /20" },
-                    { label: "CA",      color: "#0891b2", detail: "HW+CW+CT scaled to /25" },
-                    { label: "MGT",     color: "#7c3aed", detail: "Direct /15" },
-                    { label: "Exams",   color: "#16a34a", detail: "raw/100 × 40 = /40" },
-                  ].map(({ label, color, detail }) => (
+                  {(isExamOnly(classLevel)
+                    ? [{ label: "Exam", color: "#16a34a", detail: "Exam is the total /100" }]
+                    : [
+                        { label: "SBA", color: "#3b82f6", detail: "(Test 1 + Group Work + Test 2) /60 × 50" },
+                        { label: "Exam", color: "#16a34a", detail: "Exam /100 × 50" },
+                      ]
+                  ).map(({ label, color, detail }) => (
                     <div key={label} className="res-score-guide-item" title={detail}>
                       <span className="res-score-guide-dot" style={{ background: color }} aria-hidden="true" />
                       <strong style={{ color }}>{label}</strong>
@@ -1754,7 +1352,7 @@ const Results = () => {
                     <table className="res-table" aria-label="Loading students…"><tbody>
                       {[...Array(5)].map((_, i) => (
                         <tr key={i} className="res-skeleton-row">
-                          {[...Array(9)].map((__, j) => (
+                          {[...Array(isExamOnly(classLevel) ? 7 : 10)].map((__, j) => (
                             <td key={j}><div className="res-skeleton" style={{ width: j === 1 ? "120px" : "60px" }} /></td>
                           ))}
                         </tr>
@@ -1769,32 +1367,17 @@ const Results = () => {
                   </div>
                 ) : (
                   <div className="res-table-card">
-                    <table className="res-table" aria-label="Student results">
+                    <table className="res-table" aria-label="Student results" style={{ minWidth: isExamOnly(classLevel) ? "900px" : "1220px" }}>
                       <thead>
                         <tr>
                           <th>#</th>
                           <th style={{ textAlign: "left" }}>Student</th>
-                          <th>
-                            <span className="res-th-tooltip">
-                              RE-OPEN
-                              <br /><span style={{ fontWeight: 400, fontSize: "10px", opacity: .5 }}>/20</span>
-                              <span className="res-th-tip">Re-Open assessment (10) + RDA (10) = 20 marks</span>
-                            </span>
-                          </th>
-                          <th>
-                            <span className="res-th-tooltip">
-                              CA / MGT
-                              <br /><span style={{ fontWeight: 400, fontSize: "10px", opacity: .5 }}>/40</span>
-                              <span className="res-th-tip">Continuous Assessment scaled /25 + MGT test /15</span>
-                            </span>
-                          </th>
-                          <th>
-                            <span className="res-th-tooltip">
-                              EXAMS
-                              <br /><span style={{ fontWeight: 400, fontSize: "10px", opacity: .5 }}>/40</span>
-                              <span className="res-th-tip">Exam raw score /100, scaled to 40 marks</span>
-                            </span>
-                          </th>
+                          {!isExamOnly(classLevel) && SBA_COMPONENTS.slice(0, 3).map(({ key, label, max }) => (
+                            <th key={key}>{label}<br /><span style={{ fontWeight: 400, fontSize: "10px", opacity: .5 }}>/{max}</span></th>
+                          ))}
+                          {!isExamOnly(classLevel) && <th>SBA<br /><span style={{ fontWeight: 400, fontSize: "10px", opacity: .5 }}>/50</span></th>}
+                          <th>EXAM<br /><span style={{ fontWeight: 400, fontSize: "10px", opacity: .5 }}>/100</span></th>
+                          {!isExamOnly(classLevel) && <th>EXAM SCORE<br /><span style={{ fontWeight: 400, fontSize: "10px", opacity: .5 }}>/50</span></th>}
                           <th>TOTAL<br /><span style={{ fontWeight: 400, fontSize: "10px", opacity: .5 }}>/100</span></th>
                           <th>GRADE</th>
                           <th>REMARK</th>
@@ -1807,28 +1390,20 @@ const Results = () => {
                           const name = getStudentName(student);
                           const hue  = avatarHue(student.id);
 
-                          const rowDirty = (
-                            String(st.reopen ?? "") !== String(st.savedReopen ?? "") ||
-                            String(st.ca     ?? "") !== String(st.savedCa     ?? "") ||
-                            String(st.exams  ?? "") !== String(st.savedExams  ?? "")
+                          const componentKeys = isExamOnly(classLevel)
+                            ? ["exam"]
+                            : SBA_COMPONENTS.map(({ key }) => key);
+                          const rowDirty = componentKeys.some((key) =>
+                            String(st[key] ?? "") !== String(st[
+                              { test1: "savedTest1", group_work: "savedGroupWork", test2: "savedTest2", exam: "savedExam" }[key]
+                            ] ?? "")
                           );
-
-                          const hasFill = st.reopen !== "" || st.ca !== "" || st.exams !== "";
-                          const total   = hasFill ? computeScore(st.reopen, st.ca, st.exams) : null;
+                          const hasFill = componentKeys.some((key) => st[key] !== "");
+                          const metrics = scoreResult(st, classLevel);
+                          const total = hasFill ? metrics.total : null;
                           const grade   = total != null ? computeGrade(total, classLevel) : null;
                           const info    = grade ? GRADE_REMARK[grade] : null;
                           const isSaved = !!st.existingId;
-
-                          // Breakdown display labels
-                          const rkBd = st.rkBreakdown
-                            ? `${parseFloat(st.rkBreakdown.reopen_raw) || 0} + ${parseFloat(st.rkBreakdown.rda) || 0}`
-                            : null;
-                          const caBd = st.caBreakdown
-                            ? `CA ${calcCAonly(st.caBreakdown).toFixed(1)} + MGT ${parseFloat(st.caBreakdown.mgt_raw) || 0}`
-                            : null;
-                          const exBd = st.exBreakdown
-                            ? `raw ${parseFloat(st.exBreakdown.exam_raw) || 0}`
-                            : null;
 
                           return (
                             <tr key={student.id} className={rowDirty ? "res-row-dirty" : ""}>
@@ -1852,32 +1427,42 @@ const Results = () => {
                                 </div>
                               </td>
 
+                              {!isExamOnly(classLevel) && SBA_COMPONENTS.slice(0, 3).map(({ key, label, max }) => (
+                                <td key={key}>
+                                  <input
+                                    type="number" min="0" max={max} step="0.1"
+                                    aria-label={`${label} score for ${name}`}
+                                    value={st[key] ?? ""}
+                                    onChange={(event) => {
+                                      const value = event.target.value;
+                                      if (value === "" || (Number(value) >= 0 && Number(value) <= max)) {
+                                        updateComponent(student.id, key, value);
+                                      }
+                                    }}
+                                    style={{ width: "76px", padding: "7px 8px", border: "1px solid var(--line)", borderRadius: "7px", textAlign: "center", fontFamily: "'JetBrains Mono',monospace" }}
+                                  />
+                                </td>
+                              ))}
+                              {!isExamOnly(classLevel) && (
+                                <td><span className="res-score-breakdown">{hasFill ? `${metrics.sba.toFixed(1)} / 50` : "—"}</span></td>
+                              )}
                               <td>
-                                <ScoreCell
-                                  field="reopen" value={st.reopen} savedValue={st.savedReopen}
-                                  breakdown={rkBd} breakdownLabel="Re-Open raw + RDA"
-                                  max={20}
-                                  onOpen={() => setModal({ type: "reopen", studentId: student.id, studentName: name })}
+                                <input
+                                  type="number" min="0" max="100" step="0.1"
+                                  aria-label={`Exam score for ${name}`}
+                                  value={st.exam ?? ""}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    if (value === "" || (Number(value) >= 0 && Number(value) <= 100)) {
+                                      updateComponent(student.id, "exam", value);
+                                    }
+                                  }}
+                                  style={{ width: "76px", padding: "7px 8px", border: "1px solid var(--line)", borderRadius: "7px", textAlign: "center", fontFamily: "'JetBrains Mono',monospace" }}
                                 />
                               </td>
-
-                              <td>
-                                <ScoreCell
-                                  field="ca" value={st.ca} savedValue={st.savedCa}
-                                  breakdown={caBd} breakdownLabel="CA scaled + MGT"
-                                  max={40}
-                                  onOpen={() => setModal({ type: "ca", studentId: student.id, studentName: name })}
-                                />
-                              </td>
-
-                              <td>
-                                <ScoreCell
-                                  field="exams" value={st.exams} savedValue={st.savedExams}
-                                  breakdown={exBd} breakdownLabel="Exam raw score"
-                                  max={40}
-                                  onOpen={() => setModal({ type: "exams", studentId: student.id, studentName: name })}
-                                />
-                              </td>
+                              {!isExamOnly(classLevel) && (
+                                <td><span className="res-score-breakdown">{hasFill ? `${metrics.examScore.toFixed(1)} / 50` : "—"}</span></td>
+                              )}
 
                               <td>
                                 {total != null
@@ -1941,7 +1526,7 @@ const Results = () => {
                     <div className="res-btn-save-wrap">
                       <div style={{ fontSize: "13px", color: "var(--dim)" }}>
                         {filledCount === 0
-                          ? "Click any score cell to enter breakdown details"
+                          ? "Enter raw marks directly in the table"
                           : `${filledCount} of ${students.length} students have scores · ${dirtyCount > 0 ? `${dirtyCount} unsaved` : "all changes saved"}`}
                       </div>
                       <button className="res-btn-save" onClick={submitResults} disabled={saving || dirtyCount === 0}
@@ -2035,19 +1620,35 @@ const Results = () => {
                                   <thead>
                                     <tr>
                                       <th style={{ textAlign: "left" }}>Subject</th>
-                                      <th>Re-Open</th><th>CA+MGT</th><th>Exams</th>
+                                      {isExamOnly(classLevel) ? (
+                                        <th>Exam /100</th>
+                                      ) : (
+                                        <>
+                                          <th>Test 1</th><th>Group Work</th><th>Test 2</th>
+                                          <th>SBA /50</th><th>Exam /50</th>
+                                        </>
+                                      )}
                                       <th>Total</th><th>Position</th><th>Grade</th><th>Remark</th>
                                     </tr>
                                   </thead>
                                   <tbody>
                                     {row.subjects.map(sub => {
                                       const info = GRADE_REMARK[sub.grade];
+                                      const metrics = scoreResult(sub, classLevel);
                                       return (
                                         <tr key={sub.subject_id}>
                                           <td>{sub.subject_name}</td>
-                                          <td>{sub.reopen ?? "—"}</td>
-                                          <td>{sub.ca     ?? "—"}</td>
-                                          <td>{sub.exams  ?? "—"}</td>
+                                          {isExamOnly(classLevel) ? (
+                                            <td>{sub.exam ?? "—"}</td>
+                                          ) : (
+                                            <>
+                                              <td>{sub.test1 ?? "—"}</td>
+                                              <td>{sub.group_work ?? "—"}</td>
+                                              <td>{sub.test2 ?? "—"}</td>
+                                              <td>{metrics.sba.toFixed(1)}</td>
+                                              <td>{metrics.examScore.toFixed(1)}</td>
+                                            </>
+                                          )}
                                           <td style={{ fontWeight: "700", color: "var(--blue)", fontFamily: "'JetBrains Mono',monospace" }}>{sub.score ?? "—"}</td>
                                           <td style={{ color: "var(--muted)" }}>{fmtPos(sub.subject_position)}</td>
                                           <td>

@@ -1,6 +1,10 @@
 from django.db import migrations
 
 
+def clear_legacy_results(apps, schema_editor):
+    apps.get_model("results", "Result").objects.using(schema_editor.connection.alias).all().delete()
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -8,6 +12,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.RunPython(clear_legacy_results, migrations.RunPython.noop),
         migrations.RemoveField(
             model_name="result",
             name="ca",

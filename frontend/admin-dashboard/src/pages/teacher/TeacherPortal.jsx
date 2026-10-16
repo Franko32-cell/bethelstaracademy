@@ -24,7 +24,6 @@ import {
 import { Alert, EmptyState } from "./Ui";
 
 // Modals
-import { ReopenModal, CAModal, ExamsModal } from "./Scoremodals";
 import { ChangePasswordModal, ConfirmModal } from "./Authmodals";
 
 // Tabs (created in next step — stub imports for now)
@@ -53,11 +52,10 @@ const TeacherPortal = () => {
 
   // ── UI state ────────────────────────────────────────────────────────────
   const [tab,               setTab]               = useState("Classes");
-  const [selectedTerm,      setSelectedTerm]       = useState("term1");
+  const [selectedTerm,      setSelectedTerm]       = useState("term3");
   const [selectedYear,      setSelectedYear]       = useState(YEARS[0]);
   const [selectedSubject,   setSelectedSubject]    = useState("");
   const [attDate,           setAttDate]            = useState(todayStr);
-  const [scoreModal,        setScoreModal]         = useState(null);
   const [showPwModal,       setShowPwModal]        = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm]  = useState(false);
 
@@ -162,7 +160,7 @@ const TeacherPortal = () => {
   const filledCount = useMemo(
     () =>
       Object.values(results.scores).filter(
-        (v) => v?.reopen !== "" || v?.ca !== "" || v?.exams !== ""
+        (v) => v?.test1 !== "" || v?.group_work !== "" || v?.test2 !== "" || v?.exam !== ""
       ).length,
     [results.scores]
   );
@@ -181,20 +179,6 @@ const TeacherPortal = () => {
     term: TERMS.find((item) => item.value === selectedTerm)?.label,
     year: selectedYear,
   }), [teacherData.selectedClass, teacherData.students.length, selectedTerm, selectedYear]);
-
-  // ── Score modal handlers ─────────────────────────────────────────────────
-  const applyReopen = (score, breakdown) => {
-    results.applyScore(scoreModal.studentId, "reopen", score, breakdown);
-    setScoreModal(null);
-  };
-  const applyCA = (score, breakdown) => {
-    results.applyScore(scoreModal.studentId, "ca", score, breakdown);
-    setScoreModal(null);
-  };
-  const applyExams = (score, breakdown) => {
-    results.applyScore(scoreModal.studentId, "exams", score, breakdown);
-    setScoreModal(null);
-  };
 
   // ── Class change ─────────────────────────────────────────────────────────
   const handleClassChange = (classId) => {
@@ -219,32 +203,6 @@ const TeacherPortal = () => {
 
   return (
     <div className="min-h-screen bg-slate-50">
-
-      {/* Score entry modals */}
-      {scoreModal?.type === "reopen" && (
-        <ReopenModal
-          studentName={scoreModal.studentName}
-          initial={results.breakdowns[scoreModal.studentId]?.reopen}
-          onApply={applyReopen}
-          onClose={() => setScoreModal(null)}
-        />
-      )}
-      {scoreModal?.type === "ca" && (
-        <CAModal
-          studentName={scoreModal.studentName}
-          initial={results.breakdowns[scoreModal.studentId]?.ca}
-          onApply={applyCA}
-          onClose={() => setScoreModal(null)}
-        />
-      )}
-      {scoreModal?.type === "exams" && (
-        <ExamsModal
-          studentName={scoreModal.studentName}
-          initial={results.breakdowns[scoreModal.studentId]?.exams}
-          onApply={applyExams}
-          onClose={() => setScoreModal(null)}
-        />
-      )}
 
       {showPwModal && <ChangePasswordModal onClose={() => setShowPwModal(false)} />}
 
@@ -518,12 +476,11 @@ const TeacherPortal = () => {
                 selectedSubject={selectedSubject}
                 selectedClassLevel={teacherData.selectedClassLevel}
                 scores={results.scores}
-                breakdowns={results.breakdowns}
                 existingIds={results.existingIds}
                 saving={results.saving}
                 deleting={results.deleting}
                 filledCount={filledCount}
-                onOpenModal={setScoreModal}
+                onScoreChange={(studentId, field, value) => results.applyScore(studentId, field, value)}
                 onDelete={results.deleteOne}
                 onSubmit={() => setShowSubmitConfirm(true)}
               />
@@ -544,9 +501,9 @@ const TeacherPortal = () => {
               <ReportsTab
                 students={teacherData.students}
                 selectedClassName={teacherData.selectedClassName}
-                selectedClass={teacherData.selectedClass}
                 selectedTerm={selectedTerm}
                 selectedYear={selectedYear}
+                selectedClassLevel={teacherData.selectedClassLevel}
               />
             )}
 

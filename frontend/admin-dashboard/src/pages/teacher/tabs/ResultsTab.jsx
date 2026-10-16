@@ -1,5 +1,6 @@
 import React from "react";
-import { computeTotal, gradeFromTotal, getReopenBreakdown, getCABreakdown, getExamsBreakdown } from "../Helpers";
+import { gradeFromTotal } from "../Helpers";
+import { isExamOnly, SBA_COMPONENTS, scoreResult } from "../../../utils/sbaScoring";
 
 const AVATAR_COLORS = [
   "bg-blue-100 text-blue-700",
@@ -13,26 +14,16 @@ const AVATAR_COLORS = [
 const getInitials = (name = "") =>
   name.split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase();
 
-const MiniBar = ({ value, max, color }) => {
-  const pct = Math.min(100, Math.round((parseFloat(value) / max) * 100));
-  return (
-    <div className="mt-1 h-1 w-13 rounded-full bg-slate-100 overflow-hidden" style={{ width: "52px" }}>
-      <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
-    </div>
-  );
-};
-
 const ResultsTab = ({
   students = [],
   selectedSubject = "",
   selectedClassLevel = "",
   scores = {},
-  breakdowns = {},
   existingIds = {},
   saving = false,
   deleting = false,
   filledCount = 0,
-  onOpenModal = () => {},
+  onScoreChange = () => {},
   onDelete = () => {},
   onSubmit = () => {},
 }) => {
@@ -84,9 +75,15 @@ const ResultsTab = ({
       {/* ── Score legend cards ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Re-open", max: "/ 20", color: "bg-slate-50 border-slate-200 text-slate-700" },
-          { label: "CA / MGT", max: "/ 40", color: "bg-slate-50 border-slate-200 text-slate-700" },
-          { label: "Exams", max: "/ 40", color: "bg-slate-50 border-slate-200 text-slate-700" },
+          ...(isExamOnly(selectedClassLevel)
+            ? [{ label: "Exam", max: "/ 100", color: "bg-slate-50 border-slate-200 text-slate-700" }]
+            : [
+                { label: "Test 1", max: "/ 20", color: "bg-slate-50 border-slate-200 text-slate-700" },
+                { label: "Group Work", max: "/ 20", color: "bg-slate-50 border-slate-200 text-slate-700" },
+                { label: "Test 2", max: "/ 20", color: "bg-slate-50 border-slate-200 text-slate-700" },
+                { label: "SBA", max: "/ 50", color: "bg-slate-50 border-slate-200 text-slate-700" },
+                { label: "Exam", max: "/ 50", color: "bg-slate-50 border-slate-200 text-slate-700" },
+              ]),
           { label: "Total", max: "/ 100", color: "bg-blue-50 border-blue-200 text-blue-700" },
         ].map(({ label, max, color }) => (
           <div key={label} className={`rounded-xl border px-4 py-3 text-center ${color}`}>
@@ -104,13 +101,22 @@ const ResultsTab = ({
       ) : (
         <div className="rounded-2xl border border-slate-100 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm" style={{ minWidth: "640px" }}>
+            <table className="w-full text-sm" style={{ minWidth: "760px" }}>
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
                   <th className="py-3 px-4 text-left text-[10.5px] font-bold uppercase tracking-widest text-slate-400">Student</th>
-                  <th className="py-3 px-4 text-center text-[10.5px] font-bold uppercase tracking-widest text-slate-400">Re-open</th>
-                  <th className="py-3 px-4 text-center text-[10.5px] font-bold uppercase tracking-widest text-slate-400">CA</th>
-                  <th className="py-3 px-4 text-center text-[10.5px] font-bold uppercase tracking-widest text-slate-400">Exams</th>
+                  {(isExamOnly(selectedClassLevel)
+                    ? [{ key: "exam", label: "Exam /100" }]
+                    : [
+                        { key: "test1", label: "Test 1 /20" },
+                        { key: "group_work", label: "Group Work /20" },
+                        { key: "test2", label: "Test 2 /20" },
+                        { key: "sba", label: "SBA /50" },
+                        { key: "exam", label: "Exam /100" },
+                        { key: "exam_score", label: "Exam /50" },
+                      ]).map(({ key, label }) => (
+                    <th key={key} className="py-3 px-4 text-center text-[10.5px] font-bold uppercase tracking-widest text-slate-400">{label}</th>
+                  ))}
                   <th className="py-3 px-4 text-center text-[10.5px] font-bold uppercase tracking-widest text-slate-400">Total</th>
                   <th className="py-3 px-4 text-center text-[10.5px] font-bold uppercase tracking-widest text-slate-400">Grade</th>
                   <th className="py-3 px-4 text-left text-[10.5px] font-bold uppercase tracking-widest text-slate-400">Actions</th>
@@ -119,16 +125,15 @@ const ResultsTab = ({
               <tbody>
                 {students.map((s, index) => {
                   const sc = scores?.[s.id] ?? {};
-                  const rowFilled = sc.reopen !== "" || sc.ca !== "" || sc.exams !== "";
+                  const activeComponents = isExamOnly(selectedClassLevel)
+                    ? [SBA_COMPONENTS[3]]
+                    : SBA_COMPONENTS;
+                  const rowFilled = activeComponents.some(({ key }) => sc[key] !== "");
                   const saved = Boolean(existingIds[s.id]);
-                  const total = computeTotal(sc.reopen, sc.ca, sc.exams);
+                  const metrics = scoreResult(sc, selectedClassLevel);
+                  const total = metrics.total;
                   const grade = rowFilled ? gradeFromTotal(total, selectedClassLevel) : null;
-                  const reopenBreak = getReopenBreakdown(breakdowns, s.id);
-                  const caBreak     = getCABreakdown(breakdowns, s.id);
-                  const examsBreak  = getExamsBreakdown(breakdowns, s.id);
                   const avatarColor = AVATAR_COLORS[index % AVATAR_COLORS.length];
-                  const barColor    = saved ? "bg-emerald-400" : rowFilled ? "bg-amber-400" : "bg-blue-400";
-
                   const gradeChip = rowFilled
                     ? saved
                       ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
@@ -156,23 +161,45 @@ const ResultsTab = ({
                       </td>
 
                       {/* Scores */}
-                      {[
-                        { val: sc.reopen, brk: reopenBreak, max: 20 },
-                        { val: sc.ca,     brk: caBreak,     max: 40 },
-                        { val: sc.exams,  brk: examsBreak,  max: 40 },
-                      ].map(({ val, brk, max }, i) => (
-                        <td key={i} className="py-3.5 px-4 text-center">
-                          {val !== "" && val != null ? (
-                            <>
-                              <p className="text-[15px] font-bold text-slate-800 font-mono">{val}</p>
-                              <MiniBar value={val} max={max} color={barColor} />
-                              {brk && <p className="text-[10px] text-slate-400 mt-1 font-mono">{brk}</p>}
-                            </>
-                          ) : (
-                            <p className="text-slate-300 text-sm">—</p>
-                          )}
+                      {activeComponents.slice(0, isExamOnly(selectedClassLevel) ? 1 : 3).map(({ key, label, max }) => (
+                        <td key={key} className="py-3.5 px-2 text-center">
+                          <input
+                            type="number"
+                            min="0"
+                            max={max}
+                            step="0.1"
+                            aria-label={`${label} score for ${s.student_name || s.name}`}
+                            value={sc[key] ?? ""}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              if (value === "" || (Number(value) >= 0 && Number(value) <= max)) {
+                                onScoreChange(s.id, key, value);
+                              }
+                            }}
+                            className="w-20 rounded-lg border border-slate-200 bg-white px-2 py-2 text-center font-mono text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                          />
                         </td>
                       ))}
+                      {!isExamOnly(selectedClassLevel) && (
+                        <>
+                          <td className="py-3.5 px-4 text-center font-mono text-slate-600">{rowFilled ? metrics.sba.toFixed(1) : "—"}</td>
+                          <td className="py-3.5 px-2 text-center">
+                            <input
+                              type="number" min="0" max="100" step="0.1"
+                              aria-label={`Exam score for ${s.student_name || s.name}`}
+                              value={sc.exam ?? ""}
+                              onChange={(event) => {
+                                const value = event.target.value;
+                                if (value === "" || (Number(value) >= 0 && Number(value) <= 100)) {
+                                  onScoreChange(s.id, "exam", value);
+                                }
+                              }}
+                              className="w-20 rounded-lg border border-slate-200 bg-white px-2 py-2 text-center font-mono text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                            />
+                          </td>
+                          <td className="py-3.5 px-4 text-center font-mono text-slate-600">{rowFilled ? metrics.examScore.toFixed(1) : "—"}</td>
+                        </>
+                      )}
 
                       {/* Total */}
                       <td className="py-3.5 px-4 text-center">
@@ -193,15 +220,6 @@ const ResultsTab = ({
                       {/* Actions */}
                       <td className="py-3.5 px-4">
                         <div className="flex flex-wrap gap-1.5">
-                          {["reopen", "ca", "exams"].map((type) => (
-                            <button
-                              key={type}
-                              onClick={() => onOpenModal({ type, studentId: s.id, studentName: s.student_name })}
-                              className="px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-slate-200 bg-slate-50 text-slate-600 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-700 transition-colors"
-                            >
-                              {type.charAt(0).toUpperCase() + type.slice(1)}
-                            </button>
-                          ))}
                           <button
                             onClick={() => onDelete(s.id)}
                             disabled={!saved || deleting}
@@ -223,7 +241,7 @@ const ResultsTab = ({
       {/* ── Footer ── */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-2 border-t border-slate-100">
         <p className="text-xs text-slate-400">
-          Click any score button to edit the breakdown, then save when all entries are complete.
+          Enter marks directly in the table; SBA and totals recalculate as you type.
         </p>
         <button
           onClick={onSubmit}
