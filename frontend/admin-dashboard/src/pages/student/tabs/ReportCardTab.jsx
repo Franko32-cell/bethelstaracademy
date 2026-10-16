@@ -36,9 +36,9 @@ const ReportCardTab = ({ report, loading, onDownload }) => {
         </div>
       )}
 
-      {(report.conduct || report.interest || report.teacher_remark) && (
+      {(report.conduct || report.interest || report.attitude || report.teacher_remark || report.head_teacher_remark) && (
         <div className="sp-card">
-          <div className="sp-card-head"><span className="sp-card-title">Teacher's Remarks</span></div>
+          <div className="sp-card-head"><span className="sp-card-title">Remarks</span></div>
           <div style={{ padding: "14px 18px" }}>
             {report.conduct && (
               <div className="sp-remark-row"><span style={{ color: "#64748b", fontSize: "13.5px" }}>Conduct</span><span style={{ fontWeight: "600", color: "#2563eb", fontSize: "13.5px" }}>{report.conduct}</span></div>
@@ -46,7 +46,15 @@ const ReportCardTab = ({ report, loading, onDownload }) => {
             {report.interest && (
               <div className="sp-remark-row"><span style={{ color: "#64748b", fontSize: "13.5px" }}>Interest</span><span style={{ fontWeight: "600", color: "#2563eb", fontSize: "13.5px" }}>{report.interest}</span></div>
             )}
-            {report.teacher_remark && <div className="sp-remark-quote">"{report.teacher_remark}"</div>}
+            {report.attitude && (
+              <div className="sp-remark-row"><span style={{ color: "#64748b", fontSize: "13.5px" }}>Attitude</span><span style={{ fontWeight: "600", color: "#2563eb", fontSize: "13.5px" }}>{report.attitude}</span></div>
+            )}
+            {report.teacher_remark && <div className="sp-remark-quote"><strong>Class Teacher:</strong> "{report.teacher_remark}"</div>}
+            {report.head_teacher_remark && (
+              <div className="sp-remark-quote">
+                <strong>Head Teacher:</strong> "{report.head_teacher_remark}"
+              </div>
+            )}
           </div>
         </div>
       )}

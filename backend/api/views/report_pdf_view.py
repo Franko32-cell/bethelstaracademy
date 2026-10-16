@@ -36,6 +36,7 @@ Fixes in this pass (see accompanying notes):
      the first time this was tried from a WhatsApp-send view in production.
 """
 
+from html import escape
 import io
 import os
 import re
@@ -212,12 +213,14 @@ def make_para(styles):
 
 
 def section_label_row(para, text: str, col_width: float) -> Table:
-    """Create a section header row with blue background"""
-    tbl = Table([[para(f" {text}", 7, bold=True, color=WHITE)]], colWidths=[col_width])
+    """Create a flat section heading with a subtle bottom rule."""
+    tbl = Table([[para(text, 8, bold=True, color=BLUE)]], colWidths=[col_width])
     tbl.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), BLUE),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("BACKGROUND", (0, 0), (-1, -1), WHITE),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.8, MBLUE),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
     ]))
     return tbl
 
@@ -235,7 +238,8 @@ def _fetch_report(student, term: str, year: int):
 
     base_fields = [
         "id", "student", "term", "year", "attendance", "attendance_total",
-        "interest", "conduct", "teacher_remark", "vacation_date", "resumption_date",
+        "interest", "conduct", "attitude", "teacher_remark", "head_teacher_remark",
+        "vacation_date", "resumption_date",
     ]
     report_fields = base_fields + (["promotion_status", "next_class"] if has_promo else [])
 
@@ -614,11 +618,11 @@ def build_pdf(
     photo_cell = photo_img or para("", 9)
 
     school_center = [
-        para(school_name, 15, bold=True, color=WHITE, align=TA_CENTER),
-        para(school_motto, 7, bold=False, color=colors.HexColor("#93c5fd"), align=TA_CENTER),
+        para(school_name, 15, bold=True, color=BLUE, align=TA_CENTER),
+        para(school_motto, 7, bold=False, color=LGRAY, align=TA_CENTER),
         Spacer(1, 2 * mm),
-        para("TERMINAL REPORT CARD", 11, bold=True, color=GOLD, align=TA_CENTER),
-        para(TERM_LABELS.get(term, term), 8, bold=False, color=colors.HexColor("#e0f2fe"), align=TA_CENTER),
+        para("TERMINAL REPORT CARD", 11, bold=True, color=BLUE2, align=TA_CENTER),
+        para(TERM_LABELS.get(term, term), 8, bold=False, color=DGRAY, align=TA_CENTER),
     ]
 
     header_table = Table(
@@ -629,10 +633,9 @@ def build_pdf(
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("ALIGN", (0, 0), (0, 0), "LEFT"),
         ("ALIGN", (2, 0), (2, 0), "RIGHT"),
-        ("BACKGROUND", (0, 0), (-1, -1), BLUE),
-        ("BOX", (0, 0), (-1, -1), 0, WHITE),
-        ("TOPPADDING", (0, 0), (-1, -1), 8),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("BACKGROUND", (0, 0), (-1, -1), WHITE),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
         ("LEFTPADDING", (0, 0), (0, 0), 6),
         ("RIGHTPADDING", (2, 0), (2, 0), 6),
     ]))
@@ -640,8 +643,8 @@ def build_pdf(
 
     accent = Table([[""]], colWidths=[FULL_W])
     accent.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), GOLD),
-        ("TOPPADDING", (0, 0), (-1, -1), 1.5),
+        ("BACKGROUND", (0, 0), (-1, -1), BLUE2),
+        ("TOPPADDING", (0, 0), (-1, -1), 1),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
@@ -688,14 +691,12 @@ def build_pdf(
     ]
     info_table = Table(info_rows, colWidths=[93 * mm, 93 * mm])
     info_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), GRAY),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
-        ("BOX", (0, 0), (-1, -1), 0.8, DIVIDER),
-        ("GRID", (0, 0), (-1, -1), 0.4, DIVIDER),
+        ("BACKGROUND", (0, 0), (-1, -1), WHITE),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.35, DIVIDER),
         ("ROWBACKGROUNDS", (0, 0), (-1, -1), [WHITE, GRAY]),
-        ("LINEBEFORE", (0, 0), (0, -1), 3, BLUE),
     ]))
     elements.append(info_table)
     elements.append(Spacer(1, 4 * mm))
@@ -772,21 +773,22 @@ def build_pdf(
         subj_rows.append(row)
 
     subj_table = Table(subj_rows, colWidths=col_widths, repeatRows=1)
+    total_col = (3 if show_subject_position else 2) if exam_only else (7 if show_subject_position else 6)
     subj_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), BLUE),
-        ("GRID", (0, 0), (-1, -1), 0.3, DIVIDER),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.35, DIVIDER),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ("LEFTPADDING", (0, 0), (-1, -1), 4),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [WHITE, MGRAY]),
-        ("BACKGROUND", (4, 1), (4, -1), colors.HexColor("#f0f9ff")),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [WHITE, GRAY]),
+        ("BACKGROUND", (total_col, 1), (total_col, -1), LBLUE),
     ]))
     elements.append(subj_table)
 
     # ── Attendance + Remarks ───────────────────────────────────────
     att_label = section_label_row(para, "ATTENDANCE & CONDUCT", 90 * mm)
-    rem_label = section_label_row(para, "CLASS TEACHER REMARKS", 90 * mm)
+    rem_label = section_label_row(para, "REMARKS", 90 * mm)
 
     att_rows = []
     if total_days > 0:
@@ -808,7 +810,7 @@ def build_pdf(
     if report:
         if report.conduct:
             att_rows.append([
-                para("Attitude:", 8, bold=True, color=BLUE2),
+                para("Conduct:", 8, bold=True, color=BLUE2),
                 para(report.conduct, 8),
             ])
         if report.interest:
@@ -829,22 +831,29 @@ def build_pdf(
 
     att_inner = Table(att_rows, colWidths=[28 * mm, 58 * mm])
     att_inner.setStyle(TableStyle([
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("LINEBELOW", (0, 0), (-1, -2), 0.3, DIVIDER),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.35, DIVIDER),
     ]))
 
     teacher_remark = report.teacher_remark if report and report.teacher_remark else None
-    rem_rows = [[
-        para(f'"{teacher_remark}"', 9, color=DGRAY) if teacher_remark
-        else para("No remarks recorded.", 9, color=LGRAY)
-    ]]
+    head_teacher_remark = report.head_teacher_remark if report and report.head_teacher_remark else None
+    attitude = report.attitude if report and report.attitude else None
+    rem_rows = [
+        [para("<b>Attitude:</b>", 8, color=BLUE2)],
+        [para(escape(attitude), 9, color=DGRAY) if attitude else para("Not recorded.", 9, color=LGRAY)],
+        [para("<b>Class Teacher:</b>", 8, color=BLUE2)],
+        [para(f'"{escape(teacher_remark)}"', 9, color=DGRAY) if teacher_remark else para("No remarks recorded.", 9, color=LGRAY)],
+        [para("<b>Head Teacher:</b>", 8, color=BLUE2)],
+        [para(f'"{escape(head_teacher_remark)}"', 9, color=DGRAY) if head_teacher_remark else para("No remarks recorded.", 9, color=LGRAY)],
+    ]
     rem_inner = Table(rem_rows, colWidths=[86 * mm])
     rem_inner.setStyle(TableStyle([
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.35, DIVIDER),
     ]))
 
     att_block = Table([[att_label], [att_inner]], colWidths=[90 * mm])
@@ -853,8 +862,7 @@ def build_pdf(
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-        ("BOX", (0, 0), (-1, -1), 0.8, DIVIDER),
-        ("BACKGROUND", (0, 1), (-1, -1), GRAY),
+        ("BACKGROUND", (0, 0), (-1, -1), WHITE),
     ]))
     rem_block = Table([[rem_label], [rem_inner]], colWidths=[90 * mm])
     rem_block.setStyle(TableStyle([
@@ -862,8 +870,7 @@ def build_pdf(
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-        ("BOX", (0, 0), (-1, -1), 0.8, DIVIDER),
-        ("BACKGROUND", (0, 1), (-1, -1), GRAY),
+        ("BACKGROUND", (0, 0), (-1, -1), WHITE),
     ]))
 
     bottom_table = Table([[att_block, rem_block]], colWidths=[93 * mm, 93 * mm])
@@ -891,13 +898,12 @@ def build_pdf(
     ]
     interp_table = Table(interp_data, colWidths=[62 * mm, 62 * mm, 62 * mm])
     interp_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), MGRAY),
-        ("BOX", (0, 0), (-1, -1), 0.8, DIVIDER),
-        ("GRID", (0, 0), (-1, -1), 0.3, DIVIDER),
+        ("BACKGROUND", (0, 0), (-1, -1), WHITE),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.35, DIVIDER),
         ("TOPPADDING", (0, 0), (-1, -1), 4),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("ROWBACKGROUNDS", (0, 0), (-1, -1), [WHITE, MGRAY]),
+        ("ROWBACKGROUNDS", (0, 0), (-1, -1), [WHITE, GRAY]),
     ]))
     elements.append(interp_table)
 

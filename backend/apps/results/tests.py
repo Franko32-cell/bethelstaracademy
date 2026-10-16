@@ -128,6 +128,59 @@ class ResultsApiTests(TestCase):
         self.assertEqual(response.data["attendance"], 1)
         self.assertEqual(response.data["total_score"], 30.0)
 
+    def test_report_attitude_and_head_teacher_remark_round_trip(self):
+        url = f"/api/report/student/{self.student.id}/"
+        report_fields = {
+            "term": "term3",
+            "year": settings.CURRENT_YEAR,
+            "attitude": "Respectful <and attentive>",
+            "head_teacher_remark": "A successful & productive term.",
+        }
+
+        save_response = self.client.patch(url, report_fields, format="json")
+        self.assertEqual(save_response.status_code, 200)
+        self.assertEqual(save_response.data["attitude"], "Respectful <and attentive>")
+        self.assertEqual(save_response.data["head_teacher_remark"], "A successful & productive term.")
+
+        read_response = self.client.get(
+            url, {"term": "term3", "year": settings.CURRENT_YEAR},
+        )
+        self.assertEqual(read_response.status_code, 200)
+        self.assertEqual(read_response.data["attitude"], "Respectful <and attentive>")
+        self.assertEqual(read_response.data["head_teacher_remark"], "A successful & productive term.")
+
+        pdf_response = self.client.get(
+            f"{url}pdf/", {"term": "term3", "year": settings.CURRENT_YEAR},
+        )
+        self.assertEqual(pdf_response.status_code, 200)
+        self.assertEqual(pdf_response["Content-Type"], "application/pdf")
+
+    def test_exam_only_report_pdf_generates(self):
+        nursery_class = SchoolClass.objects.create(name="Nursery 1", level="nursery_kg")
+        nursery_student = Student.objects.create(
+            user=get_user_model().objects.create_user(username="nursery-pupil"),
+            admission_number="NUR001",
+            first_name="Sam",
+            last_name="Learner",
+            school_class=nursery_class,
+        )
+        Result.objects.create(
+            student=nursery_student,
+            subject=self.subject,
+            school_class=nursery_class,
+            term="term3",
+            year=settings.CURRENT_YEAR,
+            exam=72,
+        )
+
+        response = self.client.get(
+            f"/api/report/student/{nursery_student.id}/pdf/",
+            {"term": "term3", "year": settings.CURRENT_YEAR},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+
     def test_report_endpoint_returns_position_and_summary(self):
         student2 = Student.objects.create(
             user=get_user_model().objects.create_user(username="tester2", password="pass"),

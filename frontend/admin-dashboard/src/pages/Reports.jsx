@@ -167,7 +167,9 @@ const dateOrNull = (v) => (v && v.trim() !== "" ? v : null);
 const EMPTY_REMARKS = {
   conduct: "",
   interest: "",
+  attitude: "",
   teacher_remark: "",
+  head_teacher_remark: "",
   vacation_date: "",
   resumption_date: "",
   promotion_status: "",
@@ -359,7 +361,9 @@ const Reports = () => {
       setRemarks({
         conduct: res.data.conduct || "",
         interest: res.data.interest || "",
+        attitude: res.data.attitude || "",
         teacher_remark: res.data.teacher_remark || "",
+        head_teacher_remark: res.data.head_teacher_remark || "",
         vacation_date: res.data.vacation_date || "",
         resumption_date: res.data.resumption_date || "",
         promotion_status: res.data.promotion_status || "",
@@ -409,7 +413,9 @@ const Reports = () => {
         year: Number(selectedYear),
         conduct: remarks.conduct,
         interest: remarks.interest,
+        attitude: remarks.attitude,
         teacher_remark: remarks.teacher_remark,
+        head_teacher_remark: remarks.head_teacher_remark,
         vacation_date: dateOrNull(remarks.vacation_date),
         resumption_date: dateOrNull(remarks.resumption_date),
         promotion_status: remarks.promotion_status || null,
@@ -421,7 +427,9 @@ const Reports = () => {
         ...prev,
         conduct: res.data.conduct,
         interest: res.data.interest,
+        attitude: res.data.attitude,
         teacher_remark: res.data.teacher_remark,
+        head_teacher_remark: res.data.head_teacher_remark,
         vacation_date: res.data.vacation_date,
         resumption_date: res.data.resumption_date,
         promotion_status: res.data.promotion_status,
@@ -977,7 +985,17 @@ const Reports = () => {
 
                 {/* Teacher remark */}
                 <div>
-                  <FormLabel>Remark</FormLabel>
+                  <FormLabel>Attitude</FormLabel>
+                  <textarea
+                    value={remarks.attitude}
+                    onChange={(e) => setRemark("attitude", e.target.value)}
+                    rows={2}
+                    placeholder="Describe the student's attitude…"
+                    className={`${selectCls} resize-none`}
+                  />
+                </div>
+                <div>
+                  <FormLabel>Class Teacher Remark</FormLabel>
                   <textarea
                     value={remarks.teacher_remark}
                     onChange={(e) =>
@@ -985,6 +1003,16 @@ const Reports = () => {
                     }
                     rows={3}
                     placeholder="Write a remark for this student…"
+                    className={`${selectCls} resize-none`}
+                  />
+                </div>
+                <div>
+                  <FormLabel>Head Teacher Remark</FormLabel>
+                  <textarea
+                    value={remarks.head_teacher_remark}
+                    onChange={(e) => setRemark("head_teacher_remark", e.target.value)}
+                    rows={3}
+                    placeholder="Write the head teacher's remark for this student…"
                     className={`${selectCls} resize-none`}
                   />
                 </div>

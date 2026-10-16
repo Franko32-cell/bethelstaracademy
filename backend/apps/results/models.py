@@ -236,7 +236,9 @@ class Report(models.Model):
 
     interest       = models.TextField(blank=True)
     conduct        = models.CharField(max_length=100, blank=True)
+    attitude       = models.TextField(blank=True, default="")
     teacher_remark = models.TextField(blank=True)
+    head_teacher_remark = models.TextField(blank=True, default="")
 
     vacation_date   = models.DateField(null=True, blank=True)
     resumption_date = models.DateField(null=True, blank=True)

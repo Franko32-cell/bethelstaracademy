@@ -100,7 +100,8 @@ def _fetch_report(student, term: str, year: int):
 
     base_fields = [
         "id", "student", "term", "year", "attendance", "attendance_total",
-        "interest", "conduct", "teacher_remark", "vacation_date", "resumption_date",
+        "interest", "conduct", "attitude", "teacher_remark", "head_teacher_remark",
+        "vacation_date", "resumption_date",
     ]
     report_fields = base_fields + (["promotion_status", "next_class"] if has_promo else [])
 
@@ -130,13 +131,15 @@ def _insert_minimal_report(student, term: str, year: int):
         connection.ops.quote_name("attendance_total"),
         connection.ops.quote_name("interest"),
         connection.ops.quote_name("conduct"),
+        connection.ops.quote_name("attitude"),
         connection.ops.quote_name("teacher_remark"),
+        connection.ops.quote_name("head_teacher_remark"),
         connection.ops.quote_name("vacation_date"),
         connection.ops.quote_name("resumption_date"),
         connection.ops.quote_name("created_at"),
     ]
     values = [
-        student.id, term, year, 0, 1, "", "", "", None, None, timezone.now(),
+        student.id, term, year, 0, 1, "", "", "", "", "", None, None, timezone.now(),
     ]
     placeholders = ", ".join(["%s"] * len(values))
     with connection.cursor() as cursor:
@@ -148,7 +151,8 @@ def _insert_minimal_report(student, term: str, year: int):
         student=student, term=term, year=year,
     ).only(
         "id", "student", "term", "year", "attendance", "attendance_total",
-        "interest", "conduct", "teacher_remark", "vacation_date", "resumption_date",
+        "interest", "conduct", "attitude", "teacher_remark", "head_teacher_remark",
+        "vacation_date", "resumption_date",
     ).first()
 
 
@@ -156,7 +160,8 @@ def _create_report(student, term: str, year: int, has_promo: bool):
     """Create or get a report, handling promotion fields gracefully"""
     base_fields = [
         "id", "student", "term", "year", "attendance", "attendance_total",
-        "interest", "conduct", "teacher_remark", "vacation_date", "resumption_date",
+        "interest", "conduct", "attitude", "teacher_remark", "head_teacher_remark",
+        "vacation_date", "resumption_date",
     ]
 
     if has_promo:
@@ -223,7 +228,9 @@ class ReportResponseSerializer(serializers.Serializer):
     attendance_percent = serializers.IntegerField()
     conduct = serializers.CharField(allow_null=True)
     interest = serializers.CharField(allow_null=True)
+    attitude = serializers.CharField(allow_null=True)
     teacher_remark = serializers.CharField(allow_null=True)
+    head_teacher_remark = serializers.CharField(allow_null=True)
     vacation_date = serializers.CharField(allow_null=True)
     resumption_date = serializers.CharField(allow_null=True)
     promotion_status = serializers.CharField(allow_null=True)
@@ -463,7 +470,9 @@ class StudentReportView(APIView):
             "attendance_percent": att_percent,
             "conduct": report.conduct if report else None,
             "interest": report.interest if report else None,
+            "attitude": report.attitude if report else None,
             "teacher_remark": report.teacher_remark if report else None,
+            "head_teacher_remark": report.head_teacher_remark if report else None,
             "vacation_date": str(report.vacation_date) if report and report.vacation_date else None,
             "resumption_date": str(report.resumption_date) if report and report.resumption_date else None,
             "promotion_status": promotion_status,
@@ -491,7 +500,8 @@ class StudentReportView(APIView):
 
         NULLABLE_FIELDS = {"vacation_date", "resumption_date", "promotion_status"}
         UPDATABLE = [
-            "conduct", "interest", "teacher_remark", "vacation_date", "resumption_date",
+            "conduct", "interest", "attitude", "teacher_remark", "head_teacher_remark",
+            "vacation_date", "resumption_date",
         ]
         if has_promo_flag:
             UPDATABLE.append("promotion_status")
@@ -535,7 +545,9 @@ class StudentReportView(APIView):
             "detail": "Saved.",
             "conduct": report.conduct,
             "interest": report.interest,
+            "attitude": report.attitude,
             "teacher_remark": report.teacher_remark,
+            "head_teacher_remark": report.head_teacher_remark,
             "vacation_date": str(report.vacation_date) if report.vacation_date else None,
             "resumption_date": str(report.resumption_date) if report.resumption_date else None,
             # Use the post-save `has_promo`, not the pre-save flag — if the

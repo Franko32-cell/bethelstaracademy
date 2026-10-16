@@ -10,7 +10,9 @@ import { isExamOnly, scoreResult } from "../../../utils/sbaScoring";
 const EMPTY_REMARKS = {
   conduct: "",
   interest: "",
+  attitude: "",
   teacher_remark: "",
+  head_teacher_remark: "",
   vacation_date: "",
   resumption_date: "",
   promotion_status: "",
@@ -92,7 +94,9 @@ const ReportsTab = ({
         setRemarks({
           conduct: data?.conduct ?? "",
           interest: data?.interest ?? "",
+          attitude: data?.attitude ?? "",
           teacher_remark: data?.teacher_remark ?? "",
+          head_teacher_remark: data?.head_teacher_remark ?? "",
           vacation_date: data?.vacation_date ?? "",
           resumption_date: data?.resumption_date ?? "",
           promotion_status: data?.promotion_status ?? "",
@@ -153,7 +157,9 @@ const ReportsTab = ({
     const original = {
       conduct: report.conduct ?? "",
       interest: report.interest ?? "",
+      attitude: report.attitude ?? "",
       teacher_remark: report.teacher_remark ?? "",
+      head_teacher_remark: report.head_teacher_remark ?? "",
       vacation_date: report.vacation_date ?? "",
       resumption_date: report.resumption_date ?? "",
       promotion_status: report.promotion_status ?? "",
@@ -369,10 +375,28 @@ const ReportsTab = ({
                       />
                     </label>
                     <label className="block text-sm text-slate-700">
-                      <span className="mb-1.5 block font-medium">Teacher remark</span>
+                      <span className="mb-1.5 block font-medium">Attitude</span>
+                      <textarea
+                        value={remarks.attitude}
+                        onChange={(e) => handleRemarkChange("attitude", e.target.value)}
+                        rows={3}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      />
+                    </label>
+                    <label className="block text-sm text-slate-700">
+                      <span className="mb-1.5 block font-medium">Class teacher remark</span>
                       <textarea
                         value={remarks.teacher_remark}
                         onChange={(e) => handleRemarkChange("teacher_remark", e.target.value)}
+                        rows={4}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      />
+                    </label>
+                    <label className="block text-sm text-slate-700">
+                      <span className="mb-1.5 block font-medium">Head teacher remark</span>
+                      <textarea
+                        value={remarks.head_teacher_remark}
+                        onChange={(e) => handleRemarkChange("head_teacher_remark", e.target.value)}
                         rows={4}
                         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                       />
