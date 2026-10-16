@@ -56,9 +56,9 @@ SCHOOL_NAMES = {
 }
 
 SCHOOL_MOTTOS = {
-    "nursery_kg": "GLOBAL LEADERS",
-    "basic_1_6":  "WHERE LEADERS ARE BORN",
-    "basic_7_9":  "WHERE LEADERS ARE BORN",
+    "nursery_kg": "POWER KNOWLEDGE WISDOM",
+    "basic_1_6":  "POWER KNOWLEDGE WISDOM",
+    "basic_7_9":  "POWER KNOWLEDGE WISDOM",
 }
 
 TERM_LABELS = {"term1": "Term 1", "term2": "Term 2", "term3": "Term 3"}

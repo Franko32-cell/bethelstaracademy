@@ -35,6 +35,7 @@ class Teacher(models.Model):
         blank=True,
         related_name="teachers",
     )
+    phone = models.CharField(max_length=30, blank=True, default="")
     # BUG FIX: hire_date had no default and was not nullable. Any code path that
     # creates a Teacher without explicitly supplying hire_date raised an
     # IntegrityError at the DB level with no clear message. Making it nullable

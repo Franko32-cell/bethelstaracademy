@@ -28,7 +28,7 @@ const TeachersAdmin = () => (
   <PersonAdminTable
     title="Teachers"
     subtitle="teachers and faculty accounts"
-    searchPlaceholder="Search by name or teacher ID…"
+    searchPlaceholder="Search by name, teacher ID, email or phone…"
     fetchList={getTeachersAdmin}
     actions={{
       activate: activateTeacher,
@@ -48,6 +48,16 @@ const TeachersAdmin = () => (
       getPhoto: (t) => t.photo_url,
     }}
     extraColumns={[
+      {
+        key: "email",
+        label: "Email",
+        render: (t) => t.email || "—",
+      },
+      {
+        key: "phone",
+        label: "Phone",
+        render: (t) => t.phone || "—",
+      },
       {
         key: "subject",
         label: "Subject",
@@ -71,6 +81,7 @@ const TeachersAdmin = () => (
           <Field label="Teacher ID" value={t.teacher_id} />
           <Field label="Username" value={t.username} />
           <Field label="Email" value={t.email} />
+          <Field label="Phone" value={t.phone} />
         </Section>
         <Section title="Assignments">
           <Field label="Subject" value={t.subject_name || t.subject || "Unassigned"} />

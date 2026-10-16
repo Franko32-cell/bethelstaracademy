@@ -33,7 +33,17 @@ class TeacherFilter(FilterSet):
 class TeacherViewSet(viewsets.ModelViewSet):
     serializer_class = TeacherSerializer
     filterset_class  = TeacherFilter
-    filter_backends  = [DjangoFilterBackend, filters.OrderingFilter]
+    filter_backends  = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    search_fields    = [
+        "teacher_id",
+        "user__first_name",
+        "user__last_name",
+        "user__username",
+        "user__email",
+        "phone",
+        "subject__name",
+        "school_class__name",
+    ]
     ordering_fields  = ["teacher_id", "hire_date"]
     ordering         = ["teacher_id"]
 

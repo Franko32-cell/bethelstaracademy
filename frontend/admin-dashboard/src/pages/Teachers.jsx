@@ -42,6 +42,8 @@ const Teachers = () => {
   const [form, setForm] = useState({
     first_name:   "",
     last_name:    "",
+    email:        "",
+    phone:        "",
     subject:      "",
     school_class: "",
     hire_date:    "",
@@ -106,13 +108,15 @@ const Teachers = () => {
       const payload = {
         first_name:   form.first_name,
         last_name:    form.last_name,
+        email:        form.email,
+        phone:        form.phone,
         subject:      Number(form.subject),
         school_class: Number(form.school_class),
         hire_date:    form.hire_date,
       };
       await API.post("/teachers/", payload);
       showToast("Teacher created successfully");
-      setForm({ first_name: "", last_name: "", subject: "", school_class: "", hire_date: "" });
+      setForm({ first_name: "", last_name: "", email: "", phone: "", subject: "", school_class: "", hire_date: "" });
       loadTeachers();
     } catch (err) {
       showToast(err.response?.data?.detail || "Failed to create teacher", "error");
@@ -146,8 +150,11 @@ const Teachers = () => {
     return (
       t.teacher_name?.toLowerCase().includes(q) ||
       t.teacher_id?.toLowerCase().includes(q)   ||
+      t.username?.toLowerCase().includes(q) ||
+      t.email?.toLowerCase().includes(q) ||
+      t.phone?.toLowerCase().includes(q) ||
       t.subject_name?.toLowerCase().includes(q) ||
-      t.class_name?.toLowerCase().includes(q)
+      t.school_class_name?.toLowerCase().includes(q)
     );
   });
 
@@ -523,6 +530,30 @@ const Teachers = () => {
                   />
                 </div>
                 <div className="field-group">
+                  <label className="field-label" htmlFor="email">Email</label>
+                  <input
+                    id="email"
+                    className="field-input"
+                    type="email"
+                    name="email"
+                    placeholder="e.g. naomi@example.com"
+                    value={form.email}
+                    onChange={handleChange}
+                  />
+                </div>
+                <div className="field-group">
+                  <label className="field-label" htmlFor="phone">Phone Number</label>
+                  <input
+                    id="phone"
+                    className="field-input"
+                    type="tel"
+                    name="phone"
+                    placeholder="e.g. 024 123 4567"
+                    value={form.phone}
+                    onChange={handleChange}
+                  />
+                </div>
+                <div className="field-group">
                   <label className="field-label" htmlFor="hire_date">Hire Date</label>
                   {/* FIX: added max={todayStr} — future hire dates are not valid */}
                   <input
@@ -588,7 +619,7 @@ const Teachers = () => {
                 <span className="search-icon" aria-hidden="true">🔍</span>
                 <input
                   className="search-input"
-                  placeholder="Search teachers…"
+                  placeholder="Search by name, ID, email or phone…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   aria-label="Search teachers"
@@ -612,6 +643,9 @@ const Teachers = () => {
                   <tr>
                     <th>Teacher</th>
                     <th>ID</th>
+                    <th>Username</th>
+                    <th>Email</th>
+                    <th>Phone</th>
                     <th>Subject</th>
                     <th>Class</th>
                     <th>Hire Date</th>
@@ -621,7 +655,7 @@ const Teachers = () => {
                 <tbody>
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={6}>
+                      <td colSpan={9}>
                         <div className="empty-state">
                           <div className="empty-icon" aria-hidden="true">👨‍🏫</div>
                           <div className="empty-text">
@@ -641,9 +675,12 @@ const Teachers = () => {
                         </div>
                       </td>
                       <td><span className="id-badge">{t.teacher_id}</span></td>
-                      <td><span className="subject-badge">{t.subject_name}</span></td>
-                      <td><span className="class-badge">{t.class_name}</span></td>
-                      <td><span className="date-text">{t.hire_date}</span></td>
+                      <td>{t.username || "—"}</td>
+                      <td>{t.email || "—"}</td>
+                      <td>{t.phone || "—"}</td>
+                      <td><span className="subject-badge">{t.subject_name || "Unassigned"}</span></td>
+                      <td><span className="class-badge">{t.school_class_name || "Unassigned"}</span></td>
+                      <td><span className="date-text">{t.hire_date || "—"}</span></td>
                       <td>
                         <button
                           className="btn-delete"

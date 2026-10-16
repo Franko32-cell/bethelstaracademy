@@ -9,11 +9,18 @@ from apps.subjects.models import Subject
 from apps.results.models import Result
 from apps.attendance.models import Attendance
 from apps.results.whatsapp import normalize_gh_phone, send_whatsapp_report
+from api.views.grades import SCHOOL_MOTTOS
 from unittest.mock import patch
 from io import BytesIO
 
 
 class ResultsApiTests(TestCase):
+
+    def test_school_motto_on_reports(self):
+        self.assertEqual(
+            set(SCHOOL_MOTTOS.values()),
+            {"POWER KNOWLEDGE WISDOM"},
+        )
 
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="tester", password="pass")

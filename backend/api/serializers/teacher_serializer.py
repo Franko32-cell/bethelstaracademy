@@ -9,12 +9,15 @@ class TeacherSerializer(serializers.ModelSerializer):
     first_name = serializers.CharField(write_only=True)
     last_name = serializers.CharField(write_only=True)
     teacher_name = serializers.SerializerMethodField(read_only=True)
+    subject_name = serializers.CharField(source="subject.name", read_only=True, allow_null=True)
+    school_class_name = serializers.CharField(source="school_class.name", read_only=True, allow_null=True)
 
-    # ── Added for Admin Settings: identity + account status, sourced from
-    # the related User row. All read-only — the write-side create() flow
-    # below is completely unchanged.
+    # Identity and account lifecycle data live on the related User row.
+    # Email is writable so the admin can maintain teacher contact details.
     username       = serializers.SerializerMethodField(read_only=True)
-    email          = serializers.SerializerMethodField(read_only=True)
+    email          = serializers.EmailField(
+        source="user.email", required=False, allow_blank=True,
+    )
     account_status = serializers.SerializerMethodField(read_only=True)
     is_active      = serializers.SerializerMethodField(read_only=True)
     last_login     = serializers.SerializerMethodField(read_only=True)
@@ -28,8 +31,11 @@ class TeacherSerializer(serializers.ModelSerializer):
             "first_name",
             "last_name",
             "teacher_name",
+            "subject_name",
+            "school_class_name",
             "username",
             "email",
+            "phone",
             "subject",
             "school_class",
             "hire_date",
@@ -41,13 +47,10 @@ class TeacherSerializer(serializers.ModelSerializer):
         read_only_fields = ["teacher_id"]
 
     def get_teacher_name(self, obj):
-        return f"{obj.user.first_name} {obj.user.last_name}"
+        return obj.full_name
 
     def get_username(self, obj):
         return obj.user.username if obj.user_id else None
-
-    def get_email(self, obj):
-        return obj.user.email if obj.user_id else None
 
     def get_account_status(self, obj):
         return getattr(obj.user, "account_status", None) if obj.user_id else None
@@ -64,6 +67,7 @@ class TeacherSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         first_name = validated_data.pop("first_name")
         last_name  = validated_data.pop("last_name")
+        email      = validated_data.pop("user", {}).get("email", "")
 
         teacher_id = f"T-{uuid.uuid4().hex[:6].upper()}"
         username   = teacher_id.lower()
@@ -72,6 +76,7 @@ class TeacherSerializer(serializers.ModelSerializer):
             username=username,
             first_name=first_name,
             last_name=last_name,
+            email=email,
             role="teacher",
             is_active=True,
             password="teacher123",
@@ -87,3 +92,16 @@ class TeacherSerializer(serializers.ModelSerializer):
             **validated_data
         )
         return teacher
+
+    def update(self, instance, validated_data):
+        user_fields = validated_data.pop("user", {})
+        for field in ("first_name", "last_name", "email"):
+            if field in validated_data:
+                user_fields[field] = validated_data.pop(field)
+
+        for field, value in user_fields.items():
+            setattr(instance.user, field, value)
+        if user_fields:
+            instance.user.save(update_fields=list(user_fields))
+
+        return super().update(instance, validated_data)
