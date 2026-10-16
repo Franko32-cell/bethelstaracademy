@@ -16,6 +16,28 @@ from io import BytesIO
 
 class ResultsApiTests(TestCase):
 
+    def test_current_term_attendance_is_included_in_report(self):
+        self.assertEqual(settings.CURRENT_TERM, "term1")
+        for day in ("2026-10-15", "2026-10-16"):
+            Attendance.objects.create(
+                student=self.student,
+                school_class=self.school_class,
+                term=settings.CURRENT_TERM,
+                year=settings.CURRENT_YEAR,
+                date=day,
+                status="present",
+            )
+
+        response = self.client.get(
+            f"/api/report/student/{self.student.id}/",
+            {"term": settings.CURRENT_TERM, "year": settings.CURRENT_YEAR},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["attendance"], 2)
+        self.assertEqual(response.data["attendance_total"], 2)
+        self.assertEqual(response.data["attendance_percent"], 100)
+
     def test_school_motto_on_reports(self):
         self.assertEqual(
             set(SCHOOL_MOTTOS.values()),

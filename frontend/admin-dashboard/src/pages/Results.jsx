@@ -13,7 +13,7 @@ const TERMS = [
 
 // This controls the initial selection and the cosmetic current-term labels;
 // teachers can still select and edit any term.
-const CURRENT_TERM = "term3";
+const CURRENT_TERM = "term1";
 const CURRENT_YEAR = 2026;
 const YEARS = [2026, 2025, 2024, 2023, 2022];
 

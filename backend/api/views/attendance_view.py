@@ -185,7 +185,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
     # -- helpers ----------------------------------------------------------
     @staticmethod
     def _current_term() -> str:
-        return getattr(settings, "CURRENT_TERM", "term3")
+        return getattr(settings, "CURRENT_TERM", "term1")
 
     @staticmethod
     def _current_year() -> int:

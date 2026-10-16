@@ -52,7 +52,7 @@ const TeacherPortal = () => {
 
   // ── UI state ────────────────────────────────────────────────────────────
   const [tab,               setTab]               = useState("Classes");
-  const [selectedTerm,      setSelectedTerm]       = useState("term3");
+  const [selectedTerm,      setSelectedTerm]       = useState("term1");
   const [selectedYear,      setSelectedYear]       = useState(YEARS[0]);
   const [selectedSubject,   setSelectedSubject]    = useState("");
   const [attDate,           setAttDate]            = useState(todayStr);

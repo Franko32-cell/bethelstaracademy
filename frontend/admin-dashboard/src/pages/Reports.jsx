@@ -46,7 +46,7 @@ const TERMS = [
   { value: "term3", label: "Term 3" },
 ];
 
-const CURRENT_TERM = "term3";
+const CURRENT_TERM = "term1";
 
 const CURRENT_YEAR = 2026;
 const YEAR_OPTIONS = Array.from({ length: 6 }, (_, i) => CURRENT_YEAR - i);
