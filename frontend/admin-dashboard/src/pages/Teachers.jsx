@@ -38,6 +38,9 @@ const Teachers = () => {
   const [toast,           setToast]           = useState(null);
   const [deleteConfirm,   setDeleteConfirm]   = useState(null);
   const [search,          setSearch]          = useState("");
+  const [editingClassId,  setEditingClassId]  = useState(null);
+  const [editedClass,     setEditedClass]     = useState("");
+  const [savingClassId,   setSavingClassId]   = useState(null);
 
   const [form, setForm] = useState({
     first_name:   "",
@@ -140,6 +143,31 @@ const Teachers = () => {
       console.error(err);
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const editTeacherClass = async (teacher) => {
+    setSavingClassId(teacher.id);
+    try {
+      const res = await API.patch(`/teachers/${teacher.id}/`, {
+        school_class: editedClass ? Number(editedClass) : null,
+      });
+      setTeachers((prev) =>
+        prev.map((item) => item.id === teacher.id ? { ...item, ...res.data } : item)
+      );
+      setEditingClassId(null);
+      setEditedClass("");
+      showToast("Teacher class updated successfully");
+    } catch (err) {
+      showToast(
+        err.response?.data?.school_class?.[0] ||
+          err.response?.data?.detail ||
+          "Failed to update teacher class",
+        "error"
+      );
+      console.error(err.response?.data || err);
+    } finally {
+      setSavingClassId(null);
     }
   };
 
@@ -344,6 +372,25 @@ const Teachers = () => {
           background: #fff7ed; color: #9a3412;
           padding: 0.25rem 0.625rem; border-radius: 6px;
         }
+        .class-assignment { display: flex; align-items: center; gap: 0.5rem; }
+        .class-edit-controls { display: flex; align-items: center; gap: 0.375rem; }
+        .class-edit-button {
+          padding: 0.3rem 0.5rem; border: 1px solid #c7d2fe; background: #eef2ff;
+          color: #4338ca; border-radius: 6px; font-size: 0.75rem; font-weight: 600;
+          font-family: 'Sora', sans-serif; cursor: pointer;
+        }
+        .class-edit-button:hover { background: #e0e7ff; }
+        .class-edit-select {
+          max-width: 150px; padding: 0.375rem; border: 1px solid #cbd5e1;
+          border-radius: 6px; font: inherit; color: #1a1d2e; background: white;
+        }
+        .class-save-button, .class-cancel-button {
+          padding: 0.3rem 0.5rem; border-radius: 6px; font-size: 0.75rem;
+          font-weight: 600; font-family: 'Sora', sans-serif; cursor: pointer;
+        }
+        .class-save-button { border: 1px solid #059669; background: #059669; color: white; }
+        .class-cancel-button { border: 1px solid #cbd5e1; background: white; color: #475569; }
+        .class-save-button:disabled, .class-cancel-button:disabled { opacity: 0.6; cursor: not-allowed; }
         .date-text { font-size: 0.8rem; color: #64748b; }
 
         /* Delete btn */
@@ -679,7 +726,60 @@ const Teachers = () => {
                       <td>{t.email || "—"}</td>
                       <td>{t.phone || "—"}</td>
                       <td><span className="subject-badge">{t.subject_name || "Unassigned"}</span></td>
-                      <td><span className="class-badge">{t.school_class_name || "Unassigned"}</span></td>
+                      <td>
+                        {editingClassId === t.id ? (
+                          <div className="class-edit-controls">
+                            <select
+                              className="class-edit-select"
+                              value={editedClass}
+                              onChange={(e) => setEditedClass(e.target.value)}
+                              aria-label={`Class for ${t.teacher_name}`}
+                              disabled={savingClassId === t.id}
+                            >
+                              <option value="">Unassigned</option>
+                              {classes.map((schoolClass) => (
+                                <option key={schoolClass.id} value={schoolClass.id}>
+                                  {schoolClass.name}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              className="class-save-button"
+                              onClick={() => editTeacherClass(t)}
+                              disabled={savingClassId === t.id}
+                            >
+                              {savingClassId === t.id ? "Saving…" : "Save"}
+                            </button>
+                            <button
+                              type="button"
+                              className="class-cancel-button"
+                              onClick={() => {
+                                setEditingClassId(null);
+                                setEditedClass("");
+                              }}
+                              disabled={savingClassId === t.id}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="class-assignment">
+                            <span className="class-badge">{t.school_class_name || "Unassigned"}</span>
+                            <button
+                              type="button"
+                              className="class-edit-button"
+                              onClick={() => {
+                                setEditingClassId(t.id);
+                                setEditedClass(t.school_class ? String(t.school_class) : "");
+                              }}
+                              aria-label={`Edit class for ${t.teacher_name}`}
+                            >
+                              Edit
+                            </button>
+                          </div>
+                        )}
+                      </td>
                       <td><span className="date-text">{t.hire_date || "—"}</span></td>
                       <td>
                         <button

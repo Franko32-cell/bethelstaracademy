@@ -46,12 +46,14 @@ class TeacherContactApiTests(TestCase):
         self.assertEqual(response.data["school_class_name"], "Basic 7")
 
         teacher = Teacher.objects.get(pk=response.data["id"])
+        next_class = SchoolClass.objects.create(name="Basic 8")
         update_response = self.client.patch(
             f"/api/teachers/{teacher.id}/",
             {
                 "first_name": "Nana",
                 "email": "nana@example.com",
                 "phone": "0207654321",
+                "school_class": next_class.id,
             },
             format="json",
         )
@@ -60,6 +62,7 @@ class TeacherContactApiTests(TestCase):
         self.assertEqual(update_response.data["teacher_name"], "Nana Obeng")
         self.assertEqual(update_response.data["email"], "nana@example.com")
         self.assertEqual(update_response.data["phone"], "0207654321")
+        self.assertEqual(update_response.data["school_class_name"], "Basic 8")
 
         search_response = self.client.get("/api/teachers/", {"search": "0207654321"})
         self.assertEqual(search_response.status_code, 200)
