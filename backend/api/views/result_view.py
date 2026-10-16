@@ -52,8 +52,8 @@ def recompute_subject_positions(subject_id, term, school_class_id, year):
     Uses standard competition ranking: tied scores share the same rank and
     the next rank skips (1, 1, 3, 4 …).
 
-    Ranks on the live computed score (reopen+ca+exams) rather than the
-    persisted `score` column — see _computed_score() docstring.
+    Ranks on the live computed total score rather than the persisted
+    `score` column — see _computed_score() docstring.
 
     IMPORTANT: `school_class_id` here should be the student's CURRENT class
     (student.school_class_id), not each row's stored Result.school_class_id.
@@ -137,12 +137,13 @@ def _assign_ranks(rows: list[dict], key: str = "total_score") -> None:
 
 class ResultViewSet(ModelViewSet):
 
-    # Component caps mirror the model's validators (reopen ≤20, ca ≤40,
-    # exams ≤40) so reopen+ca+exams can never exceed 100. These are
-    # re-enforced manually in bulk_save because update_or_create() calls
-    # model.save() directly, which does NOT run field validators — only
-    # DRF serializers (i.e. normal POST/PATCH through this ViewSet) do.
-    COMPONENT_MAX = {"reopen": 20, "ca": 40, "exams": 40}
+    # SBA-only component caps. Legacy fields are removed.
+    COMPONENT_MAX = {
+        "test1": 20,
+        "group_work": 20,
+        "test2": 20,
+        "exam": 100,
+    }
 
     queryset           = Result.objects.all().order_by("-created_at")
     serializer_class   = ResultSerializer
@@ -272,13 +273,15 @@ class ResultViewSet(ModelViewSet):
     def bulk_save(self, request):
         """
         Accepts a list of records. Each record may contain only a subset of
-        {reopen, ca, exams}. Fields that are omitted or None are preserved
-        from the existing database row — they are NOT zeroed out.
+        the SBA fields: test1, group_work, test2 and exam.
+
+        Fields that are omitted or None are preserved from the existing
+        database row — they are NOT zeroed out.
 
         Component values are validated against the same caps as the model
-        (reopen ≤20, ca ≤40, exams ≤40) so the total can never silently
-        exceed 100 — update_or_create() bypasses model-field validators,
-        so this check has to happen explicitly here.
+        (test1/group_work/test2 ≤20; exam ≤100), so the total can never
+        silently exceed the expected marks range. update_or_create() bypasses
+        model-field validators, so this check has to happen explicitly here.
 
         Unique lookup key: student + subject + term + year.
         """
@@ -331,8 +334,7 @@ class ResultViewSet(ModelViewSet):
                 # Only overwrite a component if the caller actually sent it
                 # (not None and not an empty string). This preserves
                 # previously-saved values for components the teacher hasn't
-                # entered yet. Each provided value is validated against its
-                # cap so reopen+ca+exams can never silently exceed 100.
+                # entered yet.
                 component_errors = []
                 for field, max_value in self.COMPONENT_MAX.items():
                     val = record.get(field)
@@ -471,9 +473,10 @@ class ResultViewSet(ModelViewSet):
             student_map[sid]["subjects"].append({
                 "subject_id":       r.subject.id,
                 "subject_name":     r.subject.name,
-                "reopen":           r.reopen,
-                "ca":               r.ca,
-                "exams":            r.exams,
+                "test1":            getattr(r, "test1", None),
+                "group_work":       getattr(r, "group_work", None),
+                "test2":            getattr(r, "test2", None),
+                "exam":             getattr(r, "exam", None),
                 "score":            score,
                 "grade":            grade,
                 "remark":           remark,

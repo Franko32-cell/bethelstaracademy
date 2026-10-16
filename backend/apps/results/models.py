@@ -24,16 +24,12 @@ TERM_CHOICES = (
 # ---------------------------------------------------------------------------
 
 class ResultManager(models.Manager):
-    """
-    Prevent callers from using QuerySet.update() on score-component fields.
-    update() bypasses model.save(), so `score` would silently drift out of sync.
-    Always route writes through Result.save() or the bulk_save API action.
-    """
+    """Protect computed score data from direct bulk updates."""
     def update(self, **kwargs):
-        score_fields = {"reopen", "ca", "exams"}
+        score_fields = {"test1", "group_work", "test2", "exam"}
         if score_fields.intersection(kwargs):
             raise ValueError(
-                "Use Result.save() (or the bulk-save endpoint) to update reopen/ca/exams "
+                "Use Result.save() (or the bulk-save endpoint) to update score components "
                 "so that the computed `score` field stays in sync."
             )
         return super().update(**kwargs)
@@ -49,16 +45,12 @@ class Result(models.Model):
     def _get_current_year() -> int:
         return getattr(settings, "CURRENT_YEAR", timezone.now().year)
 
-    # Inside the class body, `_get_current_year` is still the raw staticmethod
-    # descriptor, so `.__func__` is valid here. (Outside the class body,
-    # accessing it via `Result._get_current_year` unwraps the staticmethod
-    # into a plain function, which has no `.__func__` — see MockResult and
-    # PreschoolAssessment below, where we reference it directly instead.)
     year   = models.PositiveIntegerField(default=_get_current_year.__func__)
 
-    reopen = models.FloatField(default=0, validators=[MinValueValidator(0), MaxValueValidator(20)])
-    ca     = models.FloatField(default=0, validators=[MinValueValidator(0), MaxValueValidator(40)])
-    exams  = models.FloatField(default=0, validators=[MinValueValidator(0), MaxValueValidator(40)])
+    test1 = models.FloatField(default=0, validators=[MinValueValidator(0), MaxValueValidator(20)])
+    group_work = models.FloatField(default=0, validators=[MinValueValidator(0), MaxValueValidator(20)])
+    test2 = models.FloatField(default=0, validators=[MinValueValidator(0), MaxValueValidator(20)])
+    exam = models.FloatField(default=0, validators=[MinValueValidator(0), MaxValueValidator(100)])
     score  = models.FloatField(default=0, editable=False)
 
     subject_position = models.IntegerField(null=True, blank=True, default=None)
@@ -74,7 +66,9 @@ class Result(models.Model):
         return f"{self.student} – {self.subject} – {self.score}"
 
     def save(self, *args, **kwargs):
-        self.score = round(self.reopen + self.ca + self.exams, 1)
+        from apps.results.scoring import result_scores
+
+        self.score = round(result_scores(self)["total"], 1)
         super().save(*args, **kwargs)
 
 
@@ -133,8 +127,8 @@ class MockResult(models.Model):
     grading (1-9, lower=better; cut points in grades.py:GRADE_THRESHOLDS_MOCK,
     which are NOT the same as the in-term B79 thresholds — the mock sheet
     grades 74-100 as "1", the term report grades 90-100 as "1"), and are
-    ranked by a best-six aggregate rather than a reopen/ca/exams breakdown
-    or class rank.
+    ranked by a best-six aggregate rather than a SBA component breakdown or
+    class rank.
     """
     student      = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="mock_results")
     subject      = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name="mock_results")

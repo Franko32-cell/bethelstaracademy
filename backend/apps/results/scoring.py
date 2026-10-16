@@ -50,9 +50,9 @@ def validate_components(level: str | None, values: dict | None) -> dict:
 
     caps = {
         "test1": 20,
-        "group_work": 10,
-        "test2": 30,
-        "exam": 50,
+        "group_work": 20,
+        "test2": 20,
+        "exam": 100,
     }
 
     for field, max_value in caps.items():
@@ -77,37 +77,21 @@ def validate_components(level: str | None, values: dict | None) -> dict:
 
 
 def result_scores(result) -> dict:
-    """Return total and component scores regardless of the underlying schema."""
+    """Return total and component scores for the active SBA-based schema."""
     exam_only = is_exam_only(result_level(result))
+    test1 = float(getattr(result, "test1", 0) or 0)
+    group_work = float(getattr(result, "group_work", 0) or 0)
+    test2 = float(getattr(result, "test2", 0) or 0)
+    exam = float(getattr(result, "exam", 0) or 0)
 
-    if hasattr(result, "test1") or hasattr(result, "group_work") or hasattr(result, "test2") or hasattr(result, "exam"):
-        test1 = float(getattr(result, "test1", 0) or 0)
-        group_work = float(getattr(result, "group_work", 0) or 0)
-        test2 = float(getattr(result, "test2", 0) or 0)
-        exam = float(getattr(result, "exam", 0) or 0)
-        sba_raw = round_half_up(test1 + group_work + test2, 1)
-        sba = round_half_up((sba_raw / 60) * 50, 1) if sba_raw else 0.0
-        exam_score = round_half_up(exam, 1)
-        if exam_only:
-            total = round_half_up(exam_score, 1)
-        else:
-            total = round_half_up(sba + exam_score, 1)
-        return {
-            "exam_only": exam_only,
-            "sba_raw": sba_raw,
-            "sba": sba,
-            "exam_score": exam_score,
-            "total": total,
-        }
-
-    reopen = float(getattr(result, "reopen", 0) or 0)
-    ca = float(getattr(result, "ca", 0) or 0)
-    exams = float(getattr(result, "exams", 0) or 0)
-    total = round_half_up(reopen + ca + exams, 1)
+    sba_raw = round_half_up(test1 + group_work + test2, 1)
+    sba = round_half_up((sba_raw / 60) * 50, 1) if sba_raw else 0.0
+    exam_score = round_half_up((exam / 100) * 50, 1) if exam else 0.0
+    total = round_half_up(exam, 1) if exam_only else round_half_up(sba + exam_score, 1)
     return {
-        "exam_only": False,
-        "sba_raw": total,
-        "sba": total,
-        "exam_score": total,
+        "exam_only": exam_only,
+        "sba_raw": sba_raw,
+        "sba": sba,
+        "exam_score": exam_score,
         "total": total,
     }

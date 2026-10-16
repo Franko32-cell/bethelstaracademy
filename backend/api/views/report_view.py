@@ -189,9 +189,10 @@ def _create_report(student, term: str, year: int, has_promo: bool):
 
 class SubjectResultSerializer(serializers.Serializer):
     subject = serializers.CharField()
-    reopen = serializers.FloatField(allow_null=True)
-    ca = serializers.FloatField(allow_null=True)
-    exams = serializers.FloatField(allow_null=True)
+    test1 = serializers.FloatField(allow_null=True)
+    group_work = serializers.FloatField(allow_null=True)
+    test2 = serializers.FloatField(allow_null=True)
+    exam = serializers.FloatField(allow_null=True)
     score = serializers.IntegerField(allow_null=True)
     grade = serializers.CharField()
     remark = serializers.CharField()
@@ -375,9 +376,8 @@ class StudentReportView(APIView):
                         prev_avg = avg
                     class_positions[sid] = current_rank
 
-                position = class_positions.get(student.id)
-                if position is not None:
-                    position_formatted = format_position(position)
+                position = None
+                position_formatted = "N/A"
 
         # ── Subjects ────────────────────────────────────────────────
         subjects = []
@@ -392,9 +392,10 @@ class StudentReportView(APIView):
             grade, remark = get_grade_and_remark(score, thresholds)
             subjects.append({
                 "subject": r.subject.name,
-                "reopen": r.reopen,
-                "ca": r.ca,
-                "exams": r.exams,
+                "test1": getattr(r, "test1", None),
+                "group_work": getattr(r, "group_work", None),
+                "test2": getattr(r, "test2", None),
+                "exam": getattr(r, "exam", None),
                 "score": score,
                 "grade": grade,
                 "remark": remark,

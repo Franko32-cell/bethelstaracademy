@@ -68,7 +68,7 @@ from rest_framework.views import APIView
 
 from apps.students.models import Student
 from apps.results.models import Result, Report
-from apps.results.scoring import result_scores
+from apps.results.scoring import is_exam_only, result_scores
 from apps.attendance.models import Attendance
 from apps.attendance.services import attendance_counts
 
@@ -419,11 +419,15 @@ def generate_student_report_pdf(student_id, term, year):
         # See _computed_score() docstring for why.
         score = int(round(_computed_score(r)))
         grade, remark = get_grade_and_remark(score, thresholds)
+        metrics = result_scores(r)
         subjects.append({
             "name": r.subject.name,
-            "reopen": r.reopen,
-            "ca": r.ca,
-            "exams": r.exams,
+            "test1": getattr(r, "test1", None),
+            "group_work": getattr(r, "group_work", None),
+            "test2": getattr(r, "test2", None),
+            "exam": getattr(r, "exam", None),
+            "sba": metrics.get("sba"),
+            "exam_score": metrics.get("exam_score"),
             "score": score,
             "grade": grade,
             "remark": remark,
@@ -702,38 +706,69 @@ def build_pdf(
 
     show_subject_position = show_position or any(sub.get("position") is not None for sub in subjects)
 
-    subj_header = [
-        para(" SUBJECT", 8, bold=True, color=WHITE),
-        para("RE-OPEN\n& RDA 20%", 7, bold=True, color=WHITE, align=TA_CENTER),
-        para("CA/MGT\n40%", 7, bold=True, color=WHITE, align=TA_CENTER),
-        para("EXAMS\n40%", 7, bold=True, color=WHITE, align=TA_CENTER),
-        para("TOTAL\n100%", 7, bold=True, color=WHITE, align=TA_CENTER),
-        para("GRADE", 7, bold=True, color=WHITE, align=TA_CENTER),
-        para("REMARK", 7, bold=True, color=WHITE, align=TA_CENTER),
-    ]
-    if show_subject_position:
-        subj_header.insert(5, para("POS.", 7, bold=True, color=WHITE, align=TA_CENTER))
-
-    col_widths = (
-        [50 * mm, 17 * mm, 17 * mm, 17 * mm, 17 * mm, 13 * mm, 13 * mm, 30 * mm]
-        if show_subject_position else
-        [54 * mm, 19 * mm, 19 * mm, 19 * mm, 19 * mm, 14 * mm, 36 * mm]
-    )
+    exam_only = is_exam_only(level)
+    if exam_only:
+        subj_header = [
+            para(" SUBJECT", 8, bold=True, color=WHITE),
+            para("EXAM\n/100", 7, bold=True, color=WHITE, align=TA_CENTER),
+            para("TOTAL\n/100", 7, bold=True, color=WHITE, align=TA_CENTER),
+            para("GRADE", 7, bold=True, color=WHITE, align=TA_CENTER),
+            para("REMARK", 7, bold=True, color=WHITE, align=TA_CENTER),
+        ]
+        if show_subject_position:
+            subj_header.insert(2, para("POS.", 7, bold=True, color=WHITE, align=TA_CENTER))
+        col_widths = (
+            [52 * mm, 18 * mm, 18 * mm, 16 * mm, 22 * mm, 30 * mm]
+            if show_subject_position else
+            [62 * mm, 22 * mm, 22 * mm, 18 * mm, 36 * mm]
+        )
+    else:
+        subj_header = [
+            para(" SUBJECT", 8, bold=True, color=WHITE),
+            para("T1\n/20", 7, bold=True, color=WHITE, align=TA_CENTER),
+            para("GW\n/20", 7, bold=True, color=WHITE, align=TA_CENTER),
+            para("T2\n/20", 7, bold=True, color=WHITE, align=TA_CENTER),
+            para("SBA\n/50", 7, bold=True, color=WHITE, align=TA_CENTER),
+            para("EXAM\n/50", 7, bold=True, color=WHITE, align=TA_CENTER),
+            para("TOTAL\n/100", 7, bold=True, color=WHITE, align=TA_CENTER),
+            para("GRADE", 7, bold=True, color=WHITE, align=TA_CENTER),
+            para("REMARK", 7, bold=True, color=WHITE, align=TA_CENTER),
+        ]
+        if show_subject_position:
+            subj_header.insert(6, para("POS.", 7, bold=True, color=WHITE, align=TA_CENTER))
+        col_widths = (
+            [46 * mm, 12 * mm, 12 * mm, 12 * mm, 12 * mm, 12 * mm, 16 * mm, 12 * mm, 18 * mm, 30 * mm]
+            if show_subject_position else
+            [54 * mm, 14 * mm, 14 * mm, 14 * mm, 14 * mm, 14 * mm, 18 * mm, 14 * mm, 42 * mm]
+        )
 
     subj_rows = [subj_header]
     for sub in subjects:
         score_color = GREEN if sub["score"] >= 60 else (GOLD if sub["score"] >= 45 else RED)
-        row = [
-            para(f" {sub['name']}", 8),
-            para(str(sub["reopen"] or "-"), 8, align=TA_CENTER),
-            para(str(sub["ca"] or "-"), 8, align=TA_CENTER),
-            para(str(sub["exams"] or "-"), 8, align=TA_CENTER),
-            para(f'<b>{sub["score"]}</b>', 8, color=score_color, align=TA_CENTER),
-            para(f'<b>{sub["grade"]}</b>', 8, color=BLUE2, align=TA_CENTER),
-            para(sub["remark"], 7, align=TA_CENTER),
-        ]
-        if show_subject_position:
-            row.insert(5, para(sub["position"] or "-", 8, align=TA_CENTER))
+        if exam_only:
+            row = [
+                para(f" {sub['name']}", 8),
+                para(str(sub.get("exam") or "-"), 8, align=TA_CENTER),
+                para(f'<b>{sub["score"]}</b>', 8, color=score_color, align=TA_CENTER),
+                para(f'<b>{sub["grade"]}</b>', 8, color=BLUE2, align=TA_CENTER),
+                para(sub["remark"], 7, align=TA_CENTER),
+            ]
+            if show_subject_position:
+                row.insert(2, para(sub["position"] or "-", 8, align=TA_CENTER))
+        else:
+            row = [
+                para(f" {sub['name']}", 8),
+                para(str(sub.get("test1") or "-"), 8, align=TA_CENTER),
+                para(str(sub.get("group_work") or "-"), 8, align=TA_CENTER),
+                para(str(sub.get("test2") or "-"), 8, align=TA_CENTER),
+                para(str(sub.get("sba") or "-"), 8, align=TA_CENTER),
+                para(str(sub.get("exam_score") or "-"), 8, align=TA_CENTER),
+                para(f'<b>{sub["score"]}</b>', 8, color=score_color, align=TA_CENTER),
+                para(f'<b>{sub["grade"]}</b>', 8, color=BLUE2, align=TA_CENTER),
+                para(sub["remark"], 7, align=TA_CENTER),
+            ]
+            if show_subject_position:
+                row.insert(6, para(sub["position"] or "-", 8, align=TA_CENTER))
         subj_rows.append(row)
 
     subj_table = Table(subj_rows, colWidths=col_widths, repeatRows=1)

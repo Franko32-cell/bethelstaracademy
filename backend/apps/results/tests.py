@@ -62,16 +62,17 @@ class ResultsApiTests(TestCase):
             school_class=self.school_class,
             term="term3",
             year=settings.CURRENT_YEAR,
-            reopen=5,
-            ca=10,
-            exams=15,
+            test1=5,
+            group_work=10,
+            test2=15,
+            exam=40,
         )
 
         payload = [{
             "student": self.student.id,
             "subject": self.subject.id,
             "term": "term3",
-            "reopen": 7,
+            "test1": 7,
         }]
 
         response = self.client.post("/api/results/bulk/", payload, format="json")
@@ -79,9 +80,10 @@ class ResultsApiTests(TestCase):
 
         result.refresh_from_db()
         self.assertEqual(result.school_class_id, self.school_class.id)
-        self.assertEqual(result.reopen, 7.0)
-        self.assertEqual(result.ca, 10.0)
-        self.assertEqual(result.exams, 15.0)
+        self.assertEqual(result.test1, 7.0)
+        self.assertEqual(result.group_work, 10.0)
+        self.assertEqual(result.test2, 15.0)
+        self.assertEqual(result.exam, 40.0)
         self.assertEqual(result.year, settings.CURRENT_YEAR)
 
     def test_report_endpoint_filters_by_year(self):
@@ -91,9 +93,10 @@ class ResultsApiTests(TestCase):
             school_class=self.school_class,
             term="term3",
             year=settings.CURRENT_YEAR - 1,
-            reopen=1,
-            ca=1,
-            exams=1,
+            test1=1,
+            group_work=1,
+            test2=1,
+            exam=10,
         )
         Result.objects.create(
             student=self.student,
@@ -101,9 +104,10 @@ class ResultsApiTests(TestCase):
             school_class=self.school_class,
             term="term3",
             year=settings.CURRENT_YEAR,
-            reopen=7,
-            ca=8,
-            exams=9,
+            test1=7,
+            group_work=8,
+            test2=9,
+            exam=20,
         )
         Attendance.objects.create(
             student=self.student,
@@ -122,7 +126,7 @@ class ResultsApiTests(TestCase):
         self.assertEqual(response.data["year"], settings.CURRENT_YEAR)
         self.assertEqual(response.data["attendance_total"], 1)
         self.assertEqual(response.data["attendance"], 1)
-        self.assertEqual(response.data["total_score"], 24.0)
+        self.assertEqual(response.data["total_score"], 30.0)
 
     def test_report_endpoint_returns_position_and_summary(self):
         student2 = Student.objects.create(
@@ -138,9 +142,10 @@ class ResultsApiTests(TestCase):
             school_class=self.school_class,
             term="term3",
             year=settings.CURRENT_YEAR,
-            reopen=10,
-            ca=10,
-            exams=10,
+            test1=10,
+            group_work=10,
+            test2=10,
+            exam=10,
         )
         Result.objects.create(
             student=student2,
@@ -148,9 +153,10 @@ class ResultsApiTests(TestCase):
             school_class=self.school_class,
             term="term3",
             year=settings.CURRENT_YEAR,
-            reopen=5,
-            ca=5,
-            exams=5,
+            test1=10,
+            group_work=10,
+            test2=10,
+            exam=10,
         )
 
         response = self.client.get(

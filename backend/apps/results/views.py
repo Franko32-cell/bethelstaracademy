@@ -142,9 +142,10 @@ class ResultViewSet(ModelViewSet):
                     year=year,
                     defaults={
                         "school_class_id": school_class_id,
-                        "reopen": float(record.get("reopen") or 0),
-                        "ca":     float(record.get("ca")     or 0),
-                        "exams":  float(record.get("exams")  or 0),
+                        "test1": float(record.get("test1") or 0),
+                        "group_work": float(record.get("group_work") or 0),
+                        "test2": float(record.get("test2") or 0),
+                        "exam": float(record.get("exam") or 0),
                     },
                 )
                 saved.append(instance.id)
@@ -206,9 +207,10 @@ class ResultViewSet(ModelViewSet):
             student_map[sid]["subjects"].append({
                 "subject_id":       r.subject.id,
                 "subject_name":     r.subject.name,
-                "reopen":           r.reopen,
-                "ca":               r.ca,
-                "exams":            r.exams,
+                "test1":            getattr(r, "test1", None),
+                "group_work":       getattr(r, "group_work", None),
+                "test2":            getattr(r, "test2", None),
+                "exam":             getattr(r, "exam", None),
                 "score":            r.score,
                 "grade":            None,
                 "remark":           None,
@@ -284,12 +286,13 @@ class StudentReportView(APIView):
 
             subjects.append({
                 "subject":          r.subject.name,
-                "reopen":           r.reopen,
-                "ca":               r.ca,
-                "exams":            r.exams,
+                "test1":            getattr(r, "test1", None),
+                "group_work":       getattr(r, "group_work", None),
+                "test2":            getattr(r, "test2", None),
+                "exam":             getattr(r, "exam", None),
                 "score":            r.score,
-                "grade":            r.grade,
-                "remark":           r.remark,
+                "grade":            None,
+                "remark":           None,
                 "subject_position": r.subject_position,
             })
 
