@@ -1,6 +1,6 @@
 // src/pages/teacher/constants.js
-// CHANGED: added "E-Learning" entry to TABS. Everything else is unchanged
-// from the original file — copy this over your existing constants.js.
+// CHANGED: added "Mock Results" entry to TABS. Everything else is unchanged
+// from the original file.
 
 export const TERMS = [
   { value: "term1", label: "Term 1" },
@@ -56,11 +56,11 @@ export const GRADE_SCALE_B16 = [
 
 export const CONDUCT_OPTIONS = ["Excellent", "Very Good", "Good", "Fair", "Poor"];
 
-// CHANGED: added E-Learning tab
 export const TABS = [
   { key: "Classes",       icon: "🏫", label: "Classes"       },
   { key: "Attendance",    icon: "📋", label: "Attendance"    },
   { key: "Results",       icon: "📊", label: "Results"       },
+  { key: "Mock Results",  icon: "📝", label: "Mock Results"  },
   { key: "Character",     icon: "🌟", label: "Character"     },
   { key: "E-Learning",    icon: "🎓", label: "E-Learning"    },
   { key: "Reports",       icon: "📄", label: "Reports"       },
@@ -110,7 +110,6 @@ export const COHORT_OPTIONS = [
   { value: "3rd", label: "3rd Cohort" },
 ];
 
-// NEW: e-learning assignment status pill styling (Tailwind, used in ElearningTab)
 export const SUBMISSION_STATUS_STYLES = {
   not_submitted: "bg-slate-100 text-slate-500",
   submitted:     "bg-blue-100 text-blue-700",
@@ -184,7 +183,7 @@ export const MODAL_STYLES = `
   }
   .tp-modal-btn-cancel:hover { border-color:#94a3b8; color:#1e293b; }
   .tp-modal-btn-apply {
-    padding:9px 22px; border-radius:9px; border:none;
+    padding:9px 20px; border-radius:9px; border:none;
     background:#0f172a; color:#fff; font-size:13.5px; font-weight:600; cursor:pointer; transition:all .15s;
     display:flex; align-items:center; gap:8px;
   }
