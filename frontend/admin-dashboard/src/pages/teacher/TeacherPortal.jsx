@@ -33,6 +33,7 @@ import ResultsTab     from "./tabs/ResultsTab";
 import CharacterTab   from "./tabs/CharacterTab";
 import ReportsTab     from "./tabs/ReportsTab";
 import AnnouncementsFeed from "../AnnouncementsFeed";
+import MockResults from "../MockResults";
 
 // ─────────────────────────────────────────────
 // TeacherPortal
@@ -55,7 +56,7 @@ const TeacherPortal = () => {
   const [selectedTerm,      setSelectedTerm]       = useState("term1");
   const [selectedYear,      setSelectedYear]       = useState(YEARS[0]);
   const [selectedSubject,   setSelectedSubject]    = useState("");
-  const [attDate,           setAttDate]            = useState(todayStr);
+  const [attDate,           setAttDate]            = useState(todayStr());
   const [showPwModal,       setShowPwModal]        = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm]  = useState(false);
 
@@ -65,7 +66,6 @@ const TeacherPortal = () => {
     user.class ?? ""
   );
   const attendance   = useAttendance();
-  const loadAttendance = attendance.load;
   const results      = useResults();
   const charAssess   = useCharAssessment();
 
@@ -80,7 +80,7 @@ const TeacherPortal = () => {
     teacherData.setSuccess?.(""); attendance.setSuccess(""); results.setSuccess(""); charAssess.setSuccess("");
   };
 
-  // ── Boot ────────────────────────────────────────────────────────────────
+  // ── Boot ────────────────────────────────────────────────────────────
   useEffect(() => {
     teacherData.loadClasses();
     teacherData.loadSubjects();
@@ -105,9 +105,9 @@ const TeacherPortal = () => {
       teacherData.students.length > 0 &&
       !teacherData.loadingStudents
     ) {
-      loadAttendance(teacherData.selectedClass, attDate, teacherData.students);
+      attendance.load(teacherData.selectedClass, attDate, teacherData.students);
     }
-  }, [tab, attDate, teacherData.selectedClass, teacherData.students, teacherData.loadingStudents, loadAttendance]);
+  }, [tab, attDate, teacherData.selectedClass, teacherData.students, teacherData.loadingStudents]);
 
   useEffect(() => {
     if (
@@ -141,7 +141,7 @@ const TeacherPortal = () => {
 
   useEffect(() => { clearError(); clearSuccess(); }, [tab]);
 
-  // ── Derived ─────────────────────────────────────────────────────────────
+  // ── Derived ──────────────────────────────────────────────────────────
   const selectedTabLabel = useMemo(
     () => TABS.find((item) => item.key === tab)?.label || tab,
     [tab]
@@ -180,7 +180,7 @@ const TeacherPortal = () => {
     year: selectedYear,
   }), [teacherData.selectedClass, teacherData.students.length, selectedTerm, selectedYear]);
 
-  // ── Class change ─────────────────────────────────────────────────────────
+  // ── Class change ────────────────────────────────────────────────────────
   const handleClassChange = (classId) => {
     teacherData.changeClass(classId, teacherData.classes);
     setSelectedSubject("");
@@ -199,17 +199,16 @@ const TeacherPortal = () => {
     setTab(nextTab);
   };
 
-  // ── Render ───────────────────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-slate-50">
-
       {showPwModal && <ChangePasswordModal onClose={() => setShowPwModal(false)} />}
 
       {showSubmitConfirm && (
         <ConfirmModal
           title="Save Results?"
-          body={`You are about to save ${filledCount} result${filledCount !== 1 ? "s" : ""} for ${teacherData.selectedClassName}. This will overwrite any existing scores for the selected subject and term.`}
+          body={`You are about to save ${filledCount} result${filledCount !== 1 ? "s" : ""} for ${teacherData.selectedClassName}. This will overwrite any existing scores for the selected subject.`}
           confirmLabel={`Save ${filledCount} Result${filledCount !== 1 ? "s" : ""}`}
           onConfirm={() => {
             setShowSubmitConfirm(false);
@@ -257,7 +256,7 @@ const TeacherPortal = () => {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowPwModal(true)}
-              className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-blue-600 transition-colors border border-slate-200 hover:border-blue-200 hover:bg-blue-50 px-3 py-1.5 rounded-lg"
+              className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-blue-600 transition-colors border border-slate-200 hover:border-blue-200 hover:bg-blue-50 px-2.5 py-1.5 rounded-lg"
             >
               🔑 <span className="hidden md:inline">Password</span>
             </button>
@@ -483,6 +482,13 @@ const TeacherPortal = () => {
                 onScoreChange={(studentId, field, value) => results.applyScore(studentId, field, value)}
                 onDelete={results.deleteOne}
                 onSubmit={() => setShowSubmitConfirm(true)}
+              />
+            )}
+
+            {tab === "Mock Results" && (
+              <MockResults
+                selectedClass={teacherData.selectedClass}
+                selectedClassName={teacherData.selectedClassName}
               />
             )}
 
