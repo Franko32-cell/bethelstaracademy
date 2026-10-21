@@ -16,6 +16,12 @@
  * list are left out of this screen entirely, since they aren't examined
  * at BECE and have no place on a mock report.
  *
+ * Subject matching is tolerant: names are normalised (case, punctuation,
+ * "&" vs "and") and matched against aliases, first exactly, then as whole
+ * words inside the DB name (e.g. "Religious and Moral Education (RME)").
+ * If a subject is still not found, the page tells you which one and logs
+ * every subject name the API returned to the browser console.
+ *
  * PDF export (client-side, via jspdf + jspdf-autotable — run
  * `npm install jspdf jspdf-autotable` if not already in package.json)
  * produces a printable mock report for the selected class/mock/year.
@@ -39,34 +45,108 @@ const YEAR_OPTIONS = Array.from({ length: 6 }, (_, i) => CURRENT_YEAR - i);
 // BECE subjects
 // ---------------------------------------------------------------------------
 // Canonical order + names for the 10 BECE subjects. Each entry lists accepted
-// aliases so this matches however the subject is actually named in the DB
-// (e.g. "ICT" vs "Computing (ICT)"). Matching is case/space-insensitive.
+// aliases so this matches however the subject is actually named in the DB.
 // If your school's subject list uses different names, add them here rather
-// than editing the filtering logic below.
+// than editing the matching logic below.
 const BECE_SUBJECTS = [
   { code: "ENG", label: "English Language", aliases: ["english language", "english"] },
   { code: "MATH", label: "Mathematics", aliases: ["mathematics", "maths", "math"] },
   { code: "SCI", label: "Integrated Science", aliases: ["integrated science", "science"] },
   { code: "SOC", label: "Social Studies", aliases: ["social studies"] },
-  { code: "RME", label: "Religious & Moral Ed.", aliases: ["religious and moral education", "religious & moral education", "rme"] },
-  { code: "GHL", label: "Ghanaian Language", aliases: ["ghanaian language"] },
-  { code: "ICT", label: "Computing (ICT)", aliases: ["computing", "computing (ict)", "ict"] },
-  { code: "CAD", label: "Creative Arts & Design", aliases: ["creative arts and design", "creative arts & design", "creative arts"] },
+  {
+    code: "RME",
+    label: "Religious & Moral Ed.",
+    aliases: [
+      "religious and moral education",
+      "religious and moral studies",
+      "religious moral education",
+      "rme",
+    ],
+  },
+  {
+    code: "TWI",
+    label: "Asante Twi",
+    aliases: [
+      "asante twi",
+      "asanti twi",
+      "twi",
+      "ghanaian language asante twi",
+      "ghanaian language",
+    ],
+  },
+  { code: "ICT", label: "Computing (ICT)", aliases: ["computing", "computing ict", "ict"] },
+  {
+    code: "CAD",
+    label: "Creative Arts & Design",
+    aliases: ["creative arts and design", "creative arts"],
+  },
   { code: "CTECH", label: "Career Technology", aliases: ["career technology"] },
   { code: "FRE", label: "French", aliases: ["french"] },
 ];
 
-const normalize = (s) => (s || "").trim().toLowerCase();
+// "R.M.E" -> "r m e", "Creative Arts & Design" -> "creative arts and design"
+const normalize = (s) =>
+  (s || "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 
-// Match each fetched subject to a BECE_SUBJECTS entry (by name/alias) and
-// return only the matches, sorted into the canonical BECE order.
-const filterBeceSubjects = (allSubjects) => {
-  const bySubjectId = new Map();
-  BECE_SUBJECTS.forEach((bece, order) => {
-    const match = allSubjects.find((s) => bece.aliases.includes(normalize(s.name)));
-    if (match) bySubjectId.set(match.id, { ...match, code: bece.code, order });
+// "R.M.E" -> "rme" (so dotted/spaced abbreviations still match)
+const compact = (s) => normalize(s).replace(/ /g, "");
+
+const nameMatches = (name, aliases, loose) => {
+  const n = normalize(name);
+  const c = compact(name);
+  return aliases.some((a) => {
+    if (n === normalize(a) || c === compact(a)) return true;
+    // loose: alias appears as whole word(s) inside the name,
+    // e.g. "Religious and Moral Education (RME)" contains "rme"
+    return loose && ` ${n} `.includes(` ${normalize(a)} `);
   });
-  return Array.from(bySubjectId.values()).sort((a, b) => a.order - b.order);
+};
+
+// Returns { matched, missing }. Strict pass first, then a looser pass for
+// anything still unmatched. A DB subject is never claimed by two BECE entries.
+const filterBeceSubjects = (allSubjects) => {
+  const claimed = new Set();
+  const found = new Map(); // bece code -> subject
+
+  [false, true].forEach((loose) => {
+    BECE_SUBJECTS.forEach((bece) => {
+      if (found.has(bece.code)) return;
+      const match = allSubjects.find(
+        (s) => !claimed.has(s.id) && nameMatches(s.name, bece.aliases, loose)
+      );
+      if (match) {
+        claimed.add(match.id);
+        found.set(bece.code, match);
+      }
+    });
+  });
+
+  const matched = BECE_SUBJECTS.flatMap((bece, order) =>
+    found.has(bece.code) ? [{ ...found.get(bece.code), code: bece.code, order }] : []
+  );
+  const missing = BECE_SUBJECTS.filter((b) => !found.has(b.code)).map((b) => b.label);
+  return { matched, missing };
+};
+
+// Fetch every page of a DRF list endpoint (handles paginated and plain lists).
+// Without this, subjects/students beyond page 1 silently never appear.
+const fetchAll = async (url) => {
+  const items = [];
+  let next = url;
+  let guard = 0;
+  while (next && guard < 50) {
+    const res = await API.get(next);
+    const data = res.data;
+    if (Array.isArray(data)) return data;
+    items.push(...(data.results || []));
+    next = data.next || null;
+    guard += 1;
+  }
+  return items;
 };
 
 // BECE-style thresholds — mirrors grades.py:GRADE_THRESHOLDS_MOCK.
@@ -148,19 +228,24 @@ const MockResults = () => {
   const [bulkSummary, setBulkSummary] = useState(null);
 
   useEffect(() => {
-    API.get("/classes/")
-      .then((r) => setClasses(r.data.results || r.data))
+    fetchAll("/classes/")
+      .then(setClasses)
       .catch(() => setMessage({ type: "error", text: "Couldn't load classes. Refresh to try again." }));
-    API.get("/subjects/")
-      .then((r) => {
-        const all = r.data.results || r.data;
-        const bece = filterBeceSubjects(all);
-        setSubjects(bece);
-        if (bece.length < BECE_SUBJECTS.length) {
-          const missing = BECE_SUBJECTS.length - bece.length;
+
+    fetchAll("/subjects/")
+      .then((all) => {
+        const { matched, missing } = filterBeceSubjects(all);
+        setSubjects(matched);
+        if (missing.length) {
+          console.warn(
+            "Unmatched BECE subjects:",
+            missing,
+            "| Subject names from API:",
+            all.map((s) => s.name)
+          );
           setMessage({
             type: "info",
-            text: `${missing} BECE subject${missing !== 1 ? "s" : ""} not found in your subject list — check subject names match (see BECE_SUBJECTS in this file).`,
+            text: `Not found in your subject list: ${missing.join(", ")}. Check the subject names or add an alias in BECE_SUBJECTS.`,
           });
         }
       })
@@ -173,8 +258,8 @@ const MockResults = () => {
       return;
     }
     setLoadingStudents(true);
-    API.get(`/students/?school_class=${selectedClass}`)
-      .then((r) => setStudents(r.data.results || r.data))
+    fetchAll(`/students/?school_class=${selectedClass}`)
+      .then(setStudents)
       .catch(() => setMessage({ type: "error", text: "Couldn't load students for this class." }))
       .finally(() => setLoadingStudents(false));
   }, [selectedClass]);
@@ -183,10 +268,9 @@ const MockResults = () => {
     if (!selectedClass || !selectedMock || !students.length) return;
     setLoadingScores(true);
     try {
-      const res = await API.get(
+      const records = await fetchAll(
         `/mock-results/?school_class=${selectedClass}&mock=${selectedMock}&year=${selectedYear}`
       );
-      const records = res.data.results || res.data;
       const next = {};
       records.forEach((r) => {
         next[r.student] = next[r.student] || {};
@@ -527,6 +611,8 @@ const MockResults = () => {
                       <td className="px-3 py-2 font-medium text-slate-700 sticky left-0 bg-inherit whitespace-nowrap">
                         <div className="flex items-center gap-2">
                           <span>{getStudentName(student)}</span>
+                          {/* TODO: this endpoint mixes a result id and a student id (see notes).
+                              Point it at a student-keyed mock report endpoint once the backend has one. */}
                           <WhatsAppSendButton
                             endpoint={`/reports/${subjMap[subjects[0]?.id]?.id || student.id}/send-whatsapp/?type=mock&year=${selectedYear}`}
                             disabledReason={!student.parent_phone ? "No phone number on file" : undefined}
