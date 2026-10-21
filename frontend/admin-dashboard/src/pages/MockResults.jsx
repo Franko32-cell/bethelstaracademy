@@ -23,15 +23,15 @@
  * every subject name the API returned to the browser console.
  *
  * PDF export (client-side, via jspdf + jspdf-autotable — run
- * `npm install jspdf jspdf-autotable` if not already in package.json)
- * produces a printable mock report for the selected class/mock/year.
+ * `npm install jspdf jspdf-autotable` if not already in package.json):
+ *   - "Download PDF" (toolbar): whole-class mock report.
+ *   - "PDF" (next to each student): individual student mock report.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import API from "../services/api";
-import WhatsAppSendButton from "../components/WhatsAppSendButton";
 
 const MOCKS = [1, 2, 3, 4, 5, 6].map((n) => ({
   value: `mock${n}`,
@@ -189,6 +189,9 @@ const getStudentName = (s) =>
   (s?.first_name ? `${s.first_name} ${s.last_name || ""}`.trim() : null) ||
   s?.admission_number ||
   "Unknown";
+
+const hasScore = (cell) =>
+  cell && cell.score !== "" && cell.score != null && !isNaN(cell.score);
 
 // Compute "best six" raw total + aggregate for one student's row of scores
 // across the subjects currently loaded. Mirrors grades.py:compute_mock_aggregate.
@@ -372,6 +375,9 @@ const MockResults = () => {
     }
   };
 
+  // ---------------------------------------------------------------------
+  // Whole-class PDF
+  // ---------------------------------------------------------------------
   const downloadPdf = () => {
     if (!students.length) return;
     setExportingPdf(true);
@@ -430,6 +436,97 @@ const MockResults = () => {
     } finally {
       setExportingPdf(false);
     }
+  };
+
+  // ---------------------------------------------------------------------
+  // Individual student PDF
+  // ---------------------------------------------------------------------
+  const downloadStudentPdf = (student) => {
+    const subjMap = scores[student.id] || {};
+    const name = getStudentName(student);
+
+    if (!subjects.some((subj) => hasScore(subjMap[subj.id]))) {
+      setMessage({ type: "info", text: `No scores entered for ${name} yet.` });
+      return;
+    }
+
+    const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+
+    // Header
+    doc.setFont(undefined, "bold");
+    doc.setFontSize(16);
+    doc.text("Mock Examination Report", pageWidth / 2, 48, { align: "center" });
+    doc.setFontSize(10);
+    doc.setFont(undefined, "normal");
+    doc.text(`${selectedMockLabel}  •  ${selectedYear}`, pageWidth / 2, 66, { align: "center" });
+
+    doc.setFontSize(11);
+    doc.setFont(undefined, "bold");
+    doc.text(`Name: ${name}`, 40, 100);
+    doc.setFont(undefined, "normal");
+    doc.text(`Class: ${selectedClassName || "-"}`, 40, 118);
+    if (student.admission_number) {
+      doc.text(`Admission No: ${student.admission_number}`, 40, 136);
+    }
+
+    // Which subjects count towards the best-six aggregate
+    const bestSixIds = new Set(
+      subjects
+        .filter((subj) => hasScore(subjMap[subj.id]))
+        .sort((a, b) => parseFloat(subjMap[b.id].score) - parseFloat(subjMap[a.id].score))
+        .slice(0, 6)
+        .map((subj) => subj.id)
+    );
+
+    const body = subjects.map((subj) => {
+      const cell = subjMap[subj.id];
+      if (!hasScore(cell)) return [subj.name, "-", "-", "-", ""];
+      const g = gradeFor(cell.score);
+      return [subj.name, String(cell.score), g.grade, g.remark, bestSixIds.has(subj.id) ? "Yes" : ""];
+    });
+
+    autoTable(doc, {
+      startY: 154,
+      head: [["Subject", "Score", "Grade", "Remark", "Best 6"]],
+      body,
+      theme: "grid",
+      styles: { fontSize: 10, cellPadding: 5 },
+      headStyles: { fillColor: [51, 65, 85], textColor: 255 },
+      columnStyles: {
+        1: { halign: "center" },
+        2: { halign: "center", fontStyle: "bold" },
+        4: { halign: "center" },
+      },
+    });
+
+    const { rawTotal, aggregate, count } = computeAggregate(subjMap);
+    const y = doc.lastAutoTable.finalY + 24;
+    doc.setFont(undefined, "bold");
+    doc.setFontSize(11);
+    doc.text(`Best-six raw total: ${count > 0 ? rawTotal : "-"}`, 40, y);
+    doc.text(`Aggregate: ${count > 0 ? aggregate : "-"}`, 260, y);
+
+    // Grade interpretation legend
+    const interp = MOCK_THRESHOLDS.map(([min, grade, remark], i) => [
+      i === 0 ? `${min} - 100` : `${min} - below ${MOCK_THRESHOLDS[i - 1][0]}`,
+      grade,
+      remark,
+    ]);
+    autoTable(doc, {
+      startY: y + 16,
+      head: [["Score range", "Grade", "Interpretation"]],
+      body: interp,
+      theme: "striped",
+      styles: { fontSize: 8, cellPadding: 3 },
+      headStyles: { fillColor: [100, 116, 139], textColor: 255 },
+      columnStyles: { 1: { halign: "center" } },
+      tableWidth: 300,
+      margin: { left: 40 },
+    });
+
+    const fileSafeName = name.replace(/[^a-z0-9]+/gi, "_");
+    doc.save(`mock_report_${fileSafeName}_${selectedMock}_${selectedYear}.pdf`);
   };
 
   return (
@@ -611,12 +708,14 @@ const MockResults = () => {
                       <td className="px-3 py-2 font-medium text-slate-700 sticky left-0 bg-inherit whitespace-nowrap">
                         <div className="flex items-center gap-2">
                           <span>{getStudentName(student)}</span>
-                          {/* TODO: this endpoint mixes a result id and a student id (see notes).
-                              Point it at a student-keyed mock report endpoint once the backend has one. */}
-                          <WhatsAppSendButton
-                            endpoint={`/reports/${subjMap[subjects[0]?.id]?.id || student.id}/send-whatsapp/?type=mock&year=${selectedYear}`}
-                            disabledReason={!student.parent_phone ? "No phone number on file" : undefined}
-                          />
+                          <button
+                            onClick={() => downloadStudentPdf(student)}
+                            title={`Download ${getStudentName(student)}'s report`}
+                            aria-label={`Download ${getStudentName(student)}'s report`}
+                            className="text-slate-400 hover:text-blue-600 text-xs border border-slate-200 hover:border-blue-300 rounded px-1.5 py-0.5 transition-colors"
+                          >
+                            PDF
+                          </button>
                         </div>
                       </td>
                       {subjects.map((subj) => {
