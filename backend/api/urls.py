@@ -38,6 +38,7 @@ from api.views.active_users_view import ActiveUsersView
 from api.views.audit_view import AuditLogListView, AuditLogExportCSVView
 from api.views.analytics_view import AnalyticsDashboardView, AttendanceDetailView
 from api.views.mock_view import MockResultViewSet, MockReportView
+from api.views.mock_report_pdf_view import MockStudentPDFView, MockClassPDFView
 from api.views.preschool_view import PreschoolAssessmentView
 from api.views.whatsapp_view import (
     SendWhatsAppReportView, SendWhatsAppStudentReportView, BulkSendWhatsAppReportsView,
@@ -82,6 +83,8 @@ urlpatterns = [
     path("fees/receipts/<int:transaction_id>/send-whatsapp/", SendWhatsAppReceiptView.as_view(), name="send-whatsapp-receipt"),
     path("fees/send-whatsapp/bulk/", BulkSendWhatsAppBillsView.as_view(), name="bulk-send-whatsapp-bills"),
     path("mock-report/student/<int:student_id>/", MockReportView.as_view(), name="mock-report"),
+    path("mock-report/student/<int:student_id>/pdf/", MockStudentPDFView.as_view(), name="mock-report-student-pdf"),
+    path("mock-report/class/<int:class_id>/pdf/", MockClassPDFView.as_view(), name="mock-report-class-pdf"),
     path("preschool-assessment/student/<int:student_id>/", PreschoolAssessmentView.as_view(), name="preschool-assessment"),
 
     # 3. Webhooks
