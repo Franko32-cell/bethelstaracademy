@@ -14,12 +14,12 @@ from apps.students.models import Student
 class FeeWhatsAppEndpointTests(TestCase):
 
 	def setUp(self):
-		user = get_user_model().objects.create_user(username="fee-test", password="pass")
+		self.user = get_user_model().objects.create_user(username="fee-test", password="pass")
 		self.client = APIClient()
-		self.client.force_authenticate(user=user)
+		self.client.force_authenticate(user=self.user)
 		school_class = SchoolClass.objects.create(name="JSS 1", level="basic_7_9")
 		self.student = Student.objects.create(
-			user=user,
+			user=self.user,
 			admission_number="FEE001",
 			first_name="Jane",
 			last_name="Doe",
@@ -34,6 +34,7 @@ class FeeWhatsAppEndpointTests(TestCase):
 		self.transaction = PaymentTransaction.objects.create(
 			fee=self.fee,
 			amount=Decimal("100.00"),
+			recorded_by=self.user,
 		)
 
 	@patch("api.views.fee_whatsapp_view.send_whatsapp_bill")
@@ -94,3 +95,47 @@ class FeeWhatsAppEndpointTests(TestCase):
 		self.assertEqual(response.status_code, 200)
 		self.assertEqual(response.json()["message_id"], "receipt-1")
 		self.assertEqual(send_receipt.call_args.args[2], self.transaction.amount)
+
+	def test_correct_payment_updates_fee_balance_and_links_replacement(self):
+		response = self.client.post(
+			f"/api/fees/{self.fee.id}/correct-payment/",
+			{
+				"transaction_id": self.transaction.id,
+				"reason": "typed amount was wrong",
+				"amount": "200.00",
+			},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		replacement_id = response.data["transaction_id"]
+		self.assertIsNotNone(replacement_id)
+
+		self.fee.refresh_from_db()
+		self.assertEqual(self.fee.paid, Decimal("200.00"))
+		self.assertEqual(self.fee.balance, Decimal("300.00"))
+
+		original = PaymentTransaction.objects.get(pk=self.transaction.id)
+		self.assertTrue(original.is_void)
+		self.assertEqual(original.replaced_by_id, replacement_id)
+
+	def test_transactions_by_date_ignores_voided_amounts_when_printing_balance(self):
+		response = self.client.post(
+			f"/api/fees/{self.fee.id}/correct-payment/",
+			{
+				"transaction_id": self.transaction.id,
+				"reason": "typed amount was wrong",
+				"amount": "200.00",
+			},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		replacement_id = response.data["transaction_id"]
+
+		payload = self.client.get(
+			"/api/fees/transactions/",
+			{"date": self.transaction.created_at.strftime("%Y-%m-%d")},
+		).json()
+		items = {entry["id"]: entry for entry in payload}
+
+		self.assertIn(replacement_id, items)
+		self.assertEqual(items[replacement_id]["balance"], "300.00")

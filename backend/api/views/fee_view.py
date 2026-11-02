@@ -491,6 +491,8 @@ class FeeViewSet(ModelViewSet):
                 old_txn.save(update_fields=["replaced_by"])
 
             fee.save()  # recalculates balance
+            fee.refresh_from_db()
+            old_txn.refresh_from_db()
 
             log_action(
                 request=request,
@@ -593,6 +595,7 @@ class FeeViewSet(ModelViewSet):
             # have been recorded on the fee since.
             paid_to_date = (
                 fee.transactions
+                .filter(is_void=False)
                 .filter(created_at__lte=t.created_at)
                 .aggregate(total=Sum("amount"))["total"]
                 or Decimal("0")
