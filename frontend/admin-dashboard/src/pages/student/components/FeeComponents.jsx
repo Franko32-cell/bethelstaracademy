@@ -196,7 +196,13 @@ export const FeeTermCard = ({ fee, user, onPaymentSuccess }) => {
             <div className="sp-fee-term-icon" style={{ background: isPaid ? "#dcfce7" : isPartial ? "#fef9c3" : "#fee2e2" }}>{termInfo.icon}</div>
             <div>
               <div className="sp-fee-term-name">{termInfo.label}</div>
-              <div className="sp-fee-term-meta">{isPaid ? "Fully paid" : `GHS ${fmt(balance)} remaining`}</div>
+              <div className="sp-fee-term-meta">
+                {balance < 0
+                  ? `GHS ${fmt(Math.abs(balance))} credit for manual refund`
+                  : isPaid
+                    ? "Fully paid"
+                    : `GHS ${fmt(balance)} remaining`}
+              </div>
             </div>
           </div>
           <div className="sp-fee-card-right">
@@ -221,10 +227,13 @@ export const FeeTermCard = ({ fee, user, onPaymentSuccess }) => {
               ))}
               <div className="sp-fee-line sp-fee-line-total"><span>Total</span><span className="sp-fee-line-val">GHS {fmt(total)}</span></div>
               <div className="sp-fee-line"><span className="sp-fee-line-label sp-fee-line-paid">Amount Paid</span><span className="sp-fee-line-val sp-fee-line-paid">GHS {fmt(paid)}</span></div>
-              <div className="sp-fee-line"><span className="sp-fee-line-label sp-fee-line-balance">Balance Due</span><span className="sp-fee-line-val sp-fee-line-balance">GHS {fmt(balance)}</span></div>
+              <div className="sp-fee-line">
+                <span className="sp-fee-line-label sp-fee-line-balance">{balance < 0 ? "Credit for manual refund" : "Balance Due"}</span>
+                <span className="sp-fee-line-val sp-fee-line-balance">GHS {fmt(Math.abs(balance))}</span>
+              </div>
             </div>
             {isPaid
-              ? <div className="sp-pay-btn-paid"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 11.08V12a10 10 0 11-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>All fees paid — Thank you!</div>
+              ? <div className="sp-pay-btn-paid"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 11.08V12a10 10 0 11-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>{balance < 0 ? "Credit recorded for manual refund" : "All fees paid — Thank you!"}</div>
               : <><button className="sp-pay-btn" onClick={() => setShowPayModal(true)}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="1" y="4" width="22" height="16" rx="2" ry="2" /><line x1="1" y1="10" x2="23" y2="10" /></svg>Pay Now — GHS {fmt(balance)}</button><div className="sp-paystack-badge"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0110 0v4" /></svg>Secured by Paystack · Mobile Money, Cards accepted</div></>}
             <TransactionHistory transactions={localFee.transactions} />
           </div>

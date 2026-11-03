@@ -214,10 +214,8 @@ const DiscountModal = ({ fee, onClose, onSubmit, busy, error }) => {
 
   const totalFees = Number(fee.amount) + Number(fee.book_user_fee) +
     Number(fee.workbook_fee) + Number(fee.arrears);
-  const discount = Math.min(
-    Number(fee.balance),
-    Math.round(totalFees * Number(percentage || 0)) / 100
-  );
+  const discount = Math.round(totalFees * Number(percentage || 0)) / 100;
+  const credit = Math.max(0, discount - Number(fee.balance));
   const submit = (e) => {
     e.preventDefault();
     onSubmit({ percentage, reason });
@@ -255,7 +253,8 @@ const DiscountModal = ({ fee, onClose, onSubmit, busy, error }) => {
           placeholder="e.g. 10"
         />
         <p className="text-xs text-indigo-700 font-semibold mb-4">
-          Estimated discount: {ghs(discount)} of total fees (capped at outstanding balance)
+          Estimated discount: {ghs(discount)} of total fees
+          {credit > 0 && ` · ${ghs(credit)} credit will be recorded for manual refund`}
         </p>
 
         <label className="block text-xs font-bold text-slate-500 mb-1.5">Reason (required)</label>
@@ -374,8 +373,12 @@ const Drawer = ({ fee, onClose, onPay, onArrears, onDiscount }) => {
                 <span className="text-emerald-700 font-black">{ghs(fee.paid)}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-red-600 font-bold">Balance</span>
-                <span className="text-red-700 font-black">{ghs(fee.balance)}</span>
+                <span className={Number(fee.balance) < 0 ? "text-emerald-600 font-bold" : "text-red-600 font-bold"}>
+                  {Number(fee.balance) < 0 ? "Credit for manual refund" : "Balance"}
+                </span>
+                <span className={`${Number(fee.balance) < 0 ? "text-emerald-700" : "text-red-700"} font-black`}>
+                  {ghs(Math.abs(Number(fee.balance)))}
+                </span>
               </div>
             </div>
           </div>
@@ -732,7 +735,9 @@ const FeesAdmin = () => {
                       <td className="px-4 py-3.5 text-slate-600 font-medium">{fee.term} {fee.year}</td>
                       <td className="px-4 py-3.5 text-slate-700 font-semibold">{ghs(fee.total_amount)}</td>
                       <td className="px-4 py-3.5 text-emerald-700 font-semibold">{ghs(fee.paid)}</td>
-                      <td className="px-4 py-3.5 text-red-600 font-bold">{ghs(fee.balance)}</td>
+                      <td className={`px-4 py-3.5 font-bold ${Number(fee.balance) < 0 ? "text-emerald-700" : "text-red-600"}`}>
+                        {Number(fee.balance) < 0 ? `Credit ${ghs(fee.credit_balance ?? -Number(fee.balance))}` : ghs(fee.balance)}
+                      </td>
                       <td className="px-4 py-3.5"><StatusBadge status={feeStatus(fee)} /></td>
                       <td className="px-2 py-3.5">
                         <WhatsAppSendButton

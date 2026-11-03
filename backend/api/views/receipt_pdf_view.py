@@ -322,8 +322,13 @@ class PaymentReceiptPDFView(APIView):
             ])
             balance_color = GREEN if balance <= 0 else RED
             breakdown_rows.append([
-                para("Outstanding Balance", 9, bold=True, color=balance_color),
-                para(f"{balance:,.2f}", 9, bold=True, color=balance_color, align=TA_RIGHT),
+                para(
+                    "Credit for manual refund" if balance < 0 else "Outstanding Balance",
+                    9,
+                    bold=True,
+                    color=balance_color,
+                ),
+                para(f"{abs(balance):,.2f}", 9, bold=True, color=balance_color, align=TA_RIGHT),
             ])
             last_bg = LGREEN if balance <= 0 else LRED
 

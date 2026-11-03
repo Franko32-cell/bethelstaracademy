@@ -445,16 +445,16 @@ const Fees = () => {
   };
 
   const discountPreview = discountFee
-    ? Math.min(
-        Number(discountFee.balance),
-        Math.round(
-          (Number(discountFee.amount) +
-            Number(discountFee.book_user_fee) +
-            Number(discountFee.workbook_fee) +
-            Number(discountFee.arrears)) *
-            Number(discountPercentage || 0)
-        ) / 100
-      )
+    ? Math.round(
+        (Number(discountFee.amount) +
+          Number(discountFee.book_user_fee) +
+          Number(discountFee.workbook_fee) +
+          Number(discountFee.arrears)) *
+          Number(discountPercentage || 0)
+      ) / 100
+    : 0;
+  const discountCredit = discountFee
+    ? Math.max(0, discountPreview - Number(discountFee.balance))
     : 0;
 
   const submitClassAssign = async () => {
@@ -632,7 +632,11 @@ const Fees = () => {
                               <td className="p-3 text-right text-indigo-600">{Number(fee.discount || 0) > 0 ? `−${Number(fee.discount).toLocaleString()}` : "—"}</td>
                               <td className="p-3 text-right font-semibold text-slate-800">{Number(fee.total_amount).toLocaleString()}</td>
                               <td className="p-3 text-right font-medium text-emerald-600">{Number(fee.paid).toLocaleString()}</td>
-                              <td className="p-3 text-right font-medium text-red-500">{Number(fee.balance).toLocaleString()}</td>
+                              <td className={`p-3 text-right font-medium ${Number(fee.balance) < 0 ? "text-emerald-600" : "text-red-500"}`}>
+                                {Number(fee.balance) < 0
+                                  ? `Credit ${Number(fee.credit_balance ?? -Number(fee.balance)).toLocaleString()}`
+                                  : Number(fee.balance).toLocaleString()}
+                              </td>
                               <td className="p-3 text-center"><Badge fee={fee} /></td>
                               <td className="p-3">
                                 <div className="flex gap-1.5 justify-center flex-wrap">
@@ -893,7 +897,8 @@ const Fees = () => {
                   placeholder="e.g. 10"
                   className="w-full border border-slate-200 p-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
                 <p className="mt-1 text-xs text-indigo-700">
-                  Estimated discount: GHS {discountPreview.toLocaleString(undefined, { minimumFractionDigits: 2 })} (capped at outstanding balance)
+                  Estimated discount: GHS {discountPreview.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  {discountCredit > 0 && ` · GHS ${discountCredit.toLocaleString(undefined, { minimumFractionDigits: 2 })} credit for manual refund`}
                 </p>
               </div>
               <div>

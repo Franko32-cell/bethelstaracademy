@@ -301,8 +301,14 @@ def build_fee_table(fee):
     bal_color = GREEN if balance <= 0 else RED
     bal_bg    = LGREEN if balance <= 0 else LRED
     rows.append([
-        para("OUTSTANDING BALANCE", 10, bold=True, color=BLACK),
-        para(f"GHS {balance:,.2f}", 10, bold=True, color=bal_color, align=TA_RIGHT),
+        para("CREDIT FOR MANUAL REFUND" if balance < 0 else "OUTSTANDING BALANCE", 10, bold=True, color=BLACK),
+        para(
+            f"GHS {abs(balance):,.2f}" if balance < 0 else f"GHS {balance:,.2f}",
+            10,
+            bold=True,
+            color=bal_color,
+            align=TA_RIGHT,
+        ),
     ])
 
     tbl   = Table(rows, colWidths=[120*mm, 48*mm])

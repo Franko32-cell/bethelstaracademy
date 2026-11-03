@@ -844,7 +844,7 @@ class FeeViewSet(ModelViewSet):
             requested_discount = (
                 gross_total * percentage / Decimal("100")
             ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            discount_amount = min(requested_discount, fee.balance)
+            discount_amount = requested_discount
             if discount_amount <= 0:
                 return Response(
                     {"error": "The percentage is too small to produce a discount."},
@@ -870,6 +870,7 @@ class FeeViewSet(ModelViewSet):
                     "discount_amount": str(discount_amount),
                     "percentage": str(percentage),
                     "balance": str(fee.balance),
+                    "credit_for_manual_refund": str(max(Decimal("0"), -fee.balance)),
                     "reason": reason,
                 },
                 description=reason,

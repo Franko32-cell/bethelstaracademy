@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 from apps.fees.models import Fee, PaymentTransaction
 
@@ -62,6 +64,7 @@ class FeeSerializer(serializers.ModelSerializer):
     admission_number = serializers.SerializerMethodField()
     is_fully_paid    = serializers.SerializerMethodField()
     total_amount     = serializers.SerializerMethodField()
+    credit_balance   = serializers.SerializerMethodField()
     class_name       = serializers.SerializerMethodField()
     transactions     = PaymentTransactionSerializer(many=True, read_only=True)
 
@@ -84,6 +87,7 @@ class FeeSerializer(serializers.ModelSerializer):
             "total_amount",
             "paid",
             "balance",
+            "credit_balance",
             "is_fully_paid",
             "transactions",
             "created_at",
@@ -107,6 +111,9 @@ class FeeSerializer(serializers.ModelSerializer):
 
     def get_total_amount(self, obj):
         return obj.total_amount
+
+    def get_credit_balance(self, obj):
+        return max(Decimal("0.00"), -obj.balance)
 
     def get_class_name(self, obj):
         cls = obj.school_class or obj.student.school_class
