@@ -2,7 +2,7 @@ import hmac
 import hashlib
 import logging
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -790,6 +790,86 @@ class FeeViewSet(ModelViewSet):
 
         return Response(FeeSerializer(fee).data)
 
+    @action(detail=True, methods=["post"], url_path="discount")
+    def apply_discount(self, request, pk=None):
+        if not request.user.is_superuser and getattr(request.user, "role", "") != "admin":
+            return Response(
+                {"error": "Only administrators can apply fee discounts."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        percentage = request.data.get("percentage")
+        reason = str(request.data.get("reason", "")).strip()
+        if percentage is None:
+            return Response({"error": "percentage is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not reason:
+            return Response({"error": "reason is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            percentage = Decimal(str(percentage))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response(
+                {"error": "percentage must be a number"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not percentage.is_finite() or percentage <= 0 or percentage > 100:
+            return Response(
+                {"error": "percentage must be greater than 0 and no more than 100"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        self.get_object()
+        with transaction.atomic():
+            fee = (
+                Fee.objects
+                .select_for_update(of=("self",))
+                .select_related("student")
+                .get(pk=pk)
+            )
+            if fee.balance <= 0:
+                return Response(
+                    {"error": "This fee has no outstanding balance to discount."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            old_discount = fee.discount
+            old_balance = fee.balance
+            discount_amount = (
+                fee.balance * percentage / Decimal("100")
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if discount_amount <= 0:
+                return Response(
+                    {"error": "The percentage is too small to produce a discount."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            fee.discount += discount_amount
+            fee.save()
+
+            log_action(
+                request=request,
+                action=AuditLog.Action.FEE_UPDATE,
+                module=AuditLog.Module.FEES,
+                resource_type="Fee",
+                resource_id=fee.id,
+                resource_repr=f"Discount applied: {fee.student.full_name} — {fee.get_term_display()}",
+                previous_value={
+                    "discount": str(old_discount),
+                    "balance": str(old_balance),
+                },
+                new_value={
+                    "discount": str(fee.discount),
+                    "discount_amount": str(discount_amount),
+                    "percentage": str(percentage),
+                    "balance": str(fee.balance),
+                    "reason": reason,
+                },
+                description=reason,
+            )
+
+        return Response(FeeSerializer(fee).data)
+
     # ── Summary stats for a class + term ──────────────────────────────────────
 
     @action(detail=False, methods=["get"], url_path="summary")
@@ -827,6 +907,7 @@ class FeeViewSet(ModelViewSet):
             total_books    = Sum("book_user_fee"),
             total_wb       = Sum("workbook_fee"),
             total_arrears  = Sum("arrears"),
+            total_discount = Sum("discount"),
             total_paid     = Sum("paid"),
             total_balance  = Sum("balance"),
             total_students = Count("id"),
@@ -839,7 +920,8 @@ class FeeViewSet(ModelViewSet):
             (agg["total_fees"]    or 0) +
             (agg["total_books"]   or 0) +
             (agg["total_wb"]      or 0) +
-            (agg["total_arrears"] or 0)
+            (agg["total_arrears"] or 0) -
+            (agg["total_discount"] or 0)
         )
 
         recent_payments = (
@@ -907,11 +989,13 @@ class FeeViewSet(ModelViewSet):
             total_books=Sum("book_user_fee"),
             total_wb=Sum("workbook_fee"),
             total_arrears=Sum("arrears"),
+            total_discount=Sum("discount"),
             total_paid=Sum("paid"),
         )
         total_billed = (
             (totals["total_billed"]  or 0) + (totals["total_books"]   or 0) +
-            (totals["total_wb"]      or 0) + (totals["total_arrears"] or 0)
+            (totals["total_wb"]      or 0) + (totals["total_arrears"] or 0) -
+            (totals["total_discount"] or 0)
         )
 
         data = [

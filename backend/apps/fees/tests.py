@@ -118,6 +118,84 @@ class FeeWhatsAppEndpointTests(TestCase):
 		self.assertTrue(original.is_void)
 		self.assertEqual(original.replaced_by_id, replacement_id)
 
+	def test_admin_can_discount_remaining_balance_by_percentage(self):
+		self.user.role = "admin"
+		self.user.save(update_fields=["role"])
+		self.fee.paid = Decimal("100.00")
+		self.fee.save()
+
+		response = self.client.post(
+			f"/api/fees/{self.fee.id}/discount/",
+			{"percentage": "10", "reason": "Sibling discount"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data["discount"], "40.00")
+		self.assertEqual(response.data["total_amount"], Decimal("460.00"))
+		self.assertEqual(response.data["balance"], "360.00")
+
+		summary = self.client.get(
+			"/api/fees/summary/",
+			{
+				"school_class": self.student.school_class_id,
+				"term": self.fee.term,
+				"year": self.fee.year,
+			},
+		)
+		self.assertEqual(summary.status_code, 200)
+		self.assertEqual(summary.data["total_expected"], Decimal("460.00"))
+
+		patch_response = self.client.patch(
+			f"/api/fees/{self.fee.id}/",
+			{"discount": "0.00"},
+		)
+		self.assertEqual(patch_response.status_code, 200)
+		self.assertEqual(patch_response.data["discount"], "40.00")
+
+		response = self.client.post(
+			f"/api/fees/{self.fee.id}/discount/",
+			{"percentage": "100", "reason": "Full waiver of remaining amount"},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data["discount"], "400.00")
+		self.assertEqual(response.data["balance"], "0.00")
+
+	def test_discount_rejects_non_admin_and_invalid_requests(self):
+		response = self.client.post(
+			f"/api/fees/{self.fee.id}/discount/",
+			{"percentage": "10", "reason": "Sibling discount"},
+		)
+		self.assertEqual(response.status_code, 403)
+
+		self.user.role = "admin"
+		self.user.save(update_fields=["role"])
+		for percentage, reason in [
+			("0", "No discount"),
+			("100.01", "Too much"),
+			("10", ""),
+		]:
+			response = self.client.post(
+				f"/api/fees/{self.fee.id}/discount/",
+				{"percentage": percentage, "reason": reason},
+			)
+			self.assertEqual(response.status_code, 400)
+
+	def test_discount_cannot_create_a_credit_for_paid_fee(self):
+		self.user.role = "admin"
+		self.user.save(update_fields=["role"])
+		self.fee.paid = Decimal("500.00")
+		self.fee.save()
+
+		response = self.client.post(
+			f"/api/fees/{self.fee.id}/discount/",
+			{"percentage": "10", "reason": "Sibling discount"},
+		)
+
+		self.assertEqual(response.status_code, 400)
+		self.fee.refresh_from_db()
+		self.assertEqual(self.fee.discount, Decimal("0.00"))
+
 	def test_transactions_by_date_ignores_voided_amounts_when_printing_balance(self):
 		response = self.client.post(
 			f"/api/fees/{self.fee.id}/correct-payment/",

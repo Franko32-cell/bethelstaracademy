@@ -171,7 +171,8 @@ export const FeeTermCard = ({ fee, user, onPaymentSuccess }) => {
     { label: "Book User Fee", value: localFee.book_user_fee },
     { label: "Workbook Fee", value: localFee.workbook_fee },
     { label: "Arrears", value: localFee.arrears },
-  ].filter((r) => Number(r.value) > 0);
+    { label: "Discount", value: -Number(localFee.discount || 0) },
+  ].filter((r) => Number(r.value) !== 0);
 
   const handleSuccess = (amount, reference) => {
     setShowPayModal(false);
@@ -215,7 +216,7 @@ export const FeeTermCard = ({ fee, user, onPaymentSuccess }) => {
               {lineItems.map((r) => (
                 <div key={r.label} className="sp-fee-line">
                   <span className="sp-fee-line-label">{r.label}</span>
-                  <span className="sp-fee-line-val">GHS {fmt(r.value)}</span>
+                  <span className="sp-fee-line-val">{Number(r.value) < 0 ? "−" : ""}GHS {fmt(Math.abs(Number(r.value)))}</span>
                 </div>
               ))}
               <div className="sp-fee-line sp-fee-line-total"><span>Total</span><span className="sp-fee-line-val">GHS {fmt(total)}</span></div>

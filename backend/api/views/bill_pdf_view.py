@@ -261,9 +261,11 @@ def build_fee_table(fee):
     def row(label, value, highlight=False, value_color=None, bg=None):
         vc  = value_color or (BLUE2 if highlight else DGRAY)
         fs  = 10 if highlight else 9
+        amount = float(value)
+        amount_text = f"-GHS {abs(amount):,.2f}" if amount < 0 else f"GHS {amount:,.2f}"
         row = [
             para(label, fs, bold=highlight, color=BLUE if highlight else DGRAY),
-            para(f"GHS {float(value):,.2f}", fs, bold=highlight, color=vc, align=TA_RIGHT),
+            para(amount_text, fs, bold=highlight, color=vc, align=TA_RIGHT),
         ]
         return row
 
@@ -283,6 +285,10 @@ def build_fee_table(fee):
 
     if fee.arrears and float(fee.arrears) > 0:
         rows.append(row("Arrears Carried Forward", fee.arrears, value_color=RED))
+        alt_rows.append(len(rows) - 1)
+
+    if fee.discount and float(fee.discount) > 0:
+        rows.append(row("Discount", -fee.discount, value_color=GREEN))
         alt_rows.append(len(rows) - 1)
 
     rows.append([para("", 2), para("", 2)])

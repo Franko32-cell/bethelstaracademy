@@ -80,6 +80,7 @@ class FeeSerializer(serializers.ModelSerializer):
             "book_user_fee",
             "workbook_fee",
             "arrears",
+            "discount",
             "total_amount",
             "paid",
             "balance",
@@ -91,7 +92,9 @@ class FeeSerializer(serializers.ModelSerializer):
         # `paid` is read-only so nobody can PATCH it directly and change money
         # without a transaction record. Payments go through /pay/ and
         # /correct-payment/ only.
-        read_only_fields = ["paid", "balance", "school_class", "created_at", "updated_at"]
+        read_only_fields = [
+            "paid", "balance", "discount", "school_class", "created_at", "updated_at",
+        ]
 
     def get_student_name(self, obj):
         return obj.student.full_name

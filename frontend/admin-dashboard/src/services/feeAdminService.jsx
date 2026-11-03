@@ -19,6 +19,9 @@ export const payFee = (id, { amount, note = "" }) =>
 export const addArrears = (id, arrears) =>
   API.post(`/fees/${id}/add-arrears/`, { arrears }).then((res) => res.data);
 
+export const applyFeeDiscount = (id, { percentage, reason }) =>
+  API.post(`/fees/${id}/discount/`, { percentage, reason }).then((res) => res.data);
+
 export const getFeeTransactions = (id) =>
   API.get(`/fees/${id}/transactions/`).then((res) => res.data);
 

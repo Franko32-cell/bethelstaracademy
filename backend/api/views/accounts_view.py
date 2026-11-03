@@ -59,6 +59,7 @@ class AccountsDashboardView(APIView):
             total_books    = Sum("book_user_fee"),
             total_wb       = Sum("workbook_fee"),
             total_arrears  = Sum("arrears"),
+            total_discount = Sum("discount"),
             total_paid     = Sum("paid"),
             total_balance  = Sum("balance"),
             total_students = Count("id"),
@@ -71,7 +72,8 @@ class AccountsDashboardView(APIView):
             (agg["total_expected"] or 0) +
             (agg["total_books"]    or 0) +
             (agg["total_wb"]       or 0) +
-            (agg["total_arrears"]  or 0)
+            (agg["total_arrears"]  or 0) -
+            (agg["total_discount"] or 0)
         )
 
         # Per-term breakdown
@@ -79,14 +81,25 @@ class AccountsDashboardView(APIView):
         for t in ["term1", "term2", "term3"]:
             t_fees = fees.filter(term=t)
             t_agg  = t_fees.aggregate(
-                billed = Sum("amount"),
-                paid   = Sum("paid"),
-                bal    = Sum("balance"),
+                fees     = Sum("amount"),
+                books    = Sum("book_user_fee"),
+                workbook = Sum("workbook_fee"),
+                arrears  = Sum("arrears"),
+                discount = Sum("discount"),
+                paid     = Sum("paid"),
+                bal      = Sum("balance"),
+            )
+            billed = (
+                (t_agg["fees"] or 0)
+                + (t_agg["books"] or 0)
+                + (t_agg["workbook"] or 0)
+                + (t_agg["arrears"] or 0)
+                - (t_agg["discount"] or 0)
             )
             term_breakdown.append({
                 "term":    t,
                 "label":   TERM_LABELS[t],
-                "billed":  float(t_agg["billed"] or 0),
+                "billed":  float(billed),
                 "paid":    float(t_agg["paid"]   or 0),
                 "balance": float(t_agg["bal"]    or 0),
             })
@@ -246,7 +259,11 @@ class FeeCollectionReportView(APIView):
                 class_name = F("school_class__name"),
             )
             .annotate(
-                total_billed   = Sum("amount"),
+                total_fees     = Sum("amount"),
+                total_books    = Sum("book_user_fee"),
+                total_workbook = Sum("workbook_fee"),
+                total_arrears  = Sum("arrears"),
+                total_discount = Sum("discount"),
                 total_paid     = Sum("paid"),
                 total_balance  = Sum("balance"),
                 total_students = Count("id"),
@@ -258,7 +275,13 @@ class FeeCollectionReportView(APIView):
 
         rows = []
         for row in class_data:
-            billed = float(row["total_billed"] or 0)
+            billed = float(
+                (row["total_fees"] or 0)
+                + (row["total_books"] or 0)
+                + (row["total_workbook"] or 0)
+                + (row["total_arrears"] or 0)
+                - (row["total_discount"] or 0)
+            )
             paid   = float(row["total_paid"]   or 0)
             rows.append({
                 "class_id":        row["class_id"],

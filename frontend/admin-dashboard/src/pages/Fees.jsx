@@ -261,6 +261,12 @@ const Fees = () => {
   const [arrearsAmount, setArrearsAmount] = useState("");
   const [savingArrears, setSavingArrears] = useState(false);
 
+  // Discounts
+  const [discountFee, setDiscountFee] = useState(null);
+  const [discountPercentage, setDiscountPercentage] = useState("");
+  const [discountReason, setDiscountReason] = useState("");
+  const [savingDiscount, setSavingDiscount] = useState(false);
+
   // History
   const [historyFee, setHistoryFee]         = useState(null);
   const [transactions, setTransactions]     = useState([]);
@@ -414,6 +420,28 @@ const Fees = () => {
       setArrearsFee(null); setArrearsAmount(""); fetchSummary();
     } catch (err) { setError(err.response?.data?.error || "Failed to update arrears."); }
     finally { setSavingArrears(false); }
+  };
+
+  const submitDiscount = async () => {
+    if (!discountPercentage || Number(discountPercentage) <= 0 || Number(discountPercentage) > 100) {
+      setError("Enter a discount percentage greater than 0 and no more than 100.");
+      return;
+    }
+    if (!discountReason.trim()) { setError("Enter a reason for the discount."); return; }
+    setSavingDiscount(true); setError("");
+    try {
+      await API.post(`/fees/${discountFee.id}/discount/`, {
+        percentage: discountPercentage,
+        reason: discountReason,
+      });
+      setSuccess(`Discount applied for ${discountFee.student_name}.`);
+      setDiscountFee(null);
+      setDiscountPercentage("");
+      setDiscountReason("");
+      fetchSummary();
+    } catch (err) {
+      setError(err.response?.data?.error || "Failed to apply discount.");
+    } finally { setSavingDiscount(false); }
   };
 
   const submitClassAssign = async () => {
@@ -572,7 +600,7 @@ const Fees = () => {
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="bg-slate-50 border-b border-slate-200">
-                            {["Student","Fees","Books","Workbook","Arrears","Total","Paid","Balance","Status","Actions"].map((h) => (
+                            {["Student","Fees","Books","Workbook","Arrears","Discount","Total","Paid","Balance","Status","Actions"].map((h) => (
                               <th key={h} className={`p-3 text-xs font-semibold text-slate-500 uppercase tracking-wide ${h === "Student" || h === "Actions" ? "text-left" : "text-right"} ${h === "Status" || h === "Actions" ? "text-center" : ""}`}>{h}</th>
                             ))}
                           </tr>
@@ -588,6 +616,7 @@ const Fees = () => {
                               <td className="p-3 text-right text-slate-600">{Number(fee.book_user_fee).toLocaleString()}</td>
                               <td className="p-3 text-right text-slate-600">{Number(fee.workbook_fee).toLocaleString()}</td>
                               <td className="p-3 text-right text-red-500">{Number(fee.arrears).toLocaleString()}</td>
+                              <td className="p-3 text-right text-indigo-600">{Number(fee.discount || 0) > 0 ? `−${Number(fee.discount).toLocaleString()}` : "—"}</td>
                               <td className="p-3 text-right font-semibold text-slate-800">{Number(fee.total_amount).toLocaleString()}</td>
                               <td className="p-3 text-right font-medium text-emerald-600">{Number(fee.paid).toLocaleString()}</td>
                               <td className="p-3 text-right font-medium text-red-500">{Number(fee.balance).toLocaleString()}</td>
@@ -601,6 +630,9 @@ const Fees = () => {
                                     <Btn size="sm" variant="success" onClick={() => openHistory(fee)}>History</Btn>
                                   )}
                                   <Btn size="sm" variant="warning" onClick={() => { setArrearsFee(fee); setArrearsAmount(fee.arrears); setError(""); setSuccess(""); }}>Arrears</Btn>
+                                  {fee.balance > 0 && (
+                                    <Btn size="sm" variant="ghost" onClick={() => { setDiscountFee(fee); setDiscountPercentage(""); setDiscountReason(""); setError(""); setSuccess(""); }}>Discount</Btn>
+                                  )}
                                   <Btn size="sm" variant="ghost" onClick={() => downloadBill(`/fees/bill/student/${fee.student}/?term=${selectedTerm}&year=${selectedYear}`, `bill_${fee.admission_number}_${selectedTerm}_${selectedYear}.pdf`)}>Bill</Btn>
                                   <Btn size="sm" variant="danger" disabled={deletingFee === fee.id} onClick={() => handleDeleteFee(fee)}>
                                     {deletingFee === fee.id ? "…" : "Delete"}
@@ -774,6 +806,7 @@ const Fees = () => {
               ))}
             </div>
             <div className="space-y-3 mb-5">
+              {error && <div className="bg-red-50 text-red-700 border border-red-100 rounded-lg px-3 py-2 text-xs">{error}</div>}
               <div>
                 <label className="text-xs font-medium text-slate-600 block mb-1">Amount (GHS) <span className="text-red-500">*</span></label>
                 <input type="number" min="0.01" step="0.01" max={payingFee.balance} value={payAmount}
@@ -824,6 +857,44 @@ const Fees = () => {
                 {savingArrears ? "Saving…" : "Update Arrears"}
               </Btn>
               <Btn variant="outline" onClick={() => { setArrearsFee(null); setArrearsAmount(""); }} className="flex-1 justify-center py-2.5">Cancel</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {discountFee && (
+        <Modal onClose={() => { setDiscountFee(null); setDiscountPercentage(""); setDiscountReason(""); }}>
+          <div className="p-6">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-bold text-slate-800">Apply Discount</h2>
+                <p className="text-sm text-slate-500">{discountFee.student_name} · Balance GHS {Number(discountFee.balance).toLocaleString()}</p>
+              </div>
+              <button onClick={() => { setDiscountFee(null); setDiscountPercentage(""); setDiscountReason(""); }} className="text-slate-400 hover:text-slate-600 text-xl">✕</button>
+            </div>
+            <div className="space-y-3 mb-5">
+              <div>
+                <label className="text-xs font-medium text-slate-600 block mb-1">Discount percentage (max 100%)</label>
+                <input type="number" min="0.01" max="100" step="0.01" value={discountPercentage}
+                  onChange={(e) => setDiscountPercentage(e.target.value)}
+                  placeholder="e.g. 10"
+                  className="w-full border border-slate-200 p-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+                <p className="mt-1 text-xs text-indigo-700">
+                  Estimated discount: GHS {(Math.round(Number(discountFee.balance) * Number(discountPercentage || 0)) / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </p>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600 block mb-1">Reason <span className="text-red-500">*</span></label>
+                <textarea value={discountReason} onChange={(e) => setDiscountReason(e.target.value)}
+                  placeholder="e.g. Sibling discount" rows={3}
+                  className="w-full border border-slate-200 p-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Btn variant="primary" onClick={submitDiscount} disabled={savingDiscount} className="flex-1 justify-center py-2.5">
+                {savingDiscount ? "Applying…" : "Apply Discount"}
+              </Btn>
+              <Btn variant="outline" onClick={() => { setDiscountFee(null); setDiscountPercentage(""); setDiscountReason(""); }} className="flex-1 justify-center py-2.5">Cancel</Btn>
             </div>
           </div>
         </Modal>

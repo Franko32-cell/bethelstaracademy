@@ -46,6 +46,7 @@ class Fee(models.Model):
     book_user_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     workbook_fee  = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     arrears       = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    discount      = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
     # Payments
     paid    = models.DecimalField(max_digits=10, decimal_places=2, default=0)
@@ -63,7 +64,13 @@ class Fee(models.Model):
 
     @property
     def total_amount(self):
-        return self.amount + self.book_user_fee + self.workbook_fee + self.arrears
+        return (
+            self.amount
+            + self.book_user_fee
+            + self.workbook_fee
+            + self.arrears
+            - self.discount
+        )
 
     def save(self, *args, **kwargs):
         # Snapshot the class once, when the fee is first created

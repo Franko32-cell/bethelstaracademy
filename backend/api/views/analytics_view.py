@@ -142,13 +142,23 @@ class AnalyticsDashboardView(APIView):
         fee_qs = Fee.objects.filter(term=term, created_at__year=year)
         fee_agg = fee_qs.aggregate(
             total_billed=Sum("amount"),
+            total_books=Sum("book_user_fee"),
+            total_workbook=Sum("workbook_fee"),
+            total_arrears=Sum("arrears"),
+            total_discount=Sum("discount"),
             total_paid=Sum("paid"),
             total_balance=Sum("balance"),
             fully_paid=Count("id", filter=Q(balance__lte=0)),
             partial=Count("id", filter=Q(paid__gt=0, balance__gt=0)),
             unpaid=Count("id", filter=Q(paid=0)),
         )
-        total_billed = fee_agg["total_billed"] or 0
+        total_billed = (
+            (fee_agg["total_billed"] or 0)
+            + (fee_agg["total_books"] or 0)
+            + (fee_agg["total_workbook"] or 0)
+            + (fee_agg["total_arrears"] or 0)
+            - (fee_agg["total_discount"] or 0)
+        )
         total_paid = fee_agg["total_paid"] or 0
         collection_rate = (
             round(float(total_paid) / float(total_billed) * 100, 1)

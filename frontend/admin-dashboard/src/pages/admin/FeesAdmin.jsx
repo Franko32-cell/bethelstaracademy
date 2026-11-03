@@ -4,6 +4,7 @@ import {
   FaSync,
   FaEllipsisV,
   FaMoneyBillWave,
+  FaPercent,
   FaPlusCircle,
   FaTimes,
   FaCheckCircle,
@@ -16,6 +17,7 @@ import {
   getFeesAdmin,
   payFee,
   addArrears,
+  applyFeeDiscount,
   getSchoolClasses,
   getStudentsByClass,
   sendBulkWhatsAppBills,
@@ -205,8 +207,76 @@ const ArrearsModal = ({ fee, onClose, onSubmit, busy, error }) => {
   );
 };
 
+const DiscountModal = ({ fee, onClose, onSubmit, busy, error }) => {
+  const [percentage, setPercentage] = useState("");
+  const [reason, setReason] = useState("");
+  if (!fee) return null;
+
+  const discount = Math.round(Number(fee.balance) * Number(percentage || 0)) / 100;
+  const submit = (e) => {
+    e.preventDefault();
+    onSubmit({ percentage, reason });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm px-4">
+      <form onSubmit={submit} className="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-6 animate-fade-in-up">
+        <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center mb-4">
+          <FaPercent className="text-indigo-600 text-xl" />
+        </div>
+        <p className="text-lg font-black text-slate-800 mb-1">Apply discount</p>
+        <p className="text-sm text-slate-500 font-medium mb-5">
+          {fee.student_name} — outstanding balance{" "}
+          <span className="font-bold text-slate-700">{ghs(fee.balance)}</span>
+        </p>
+
+        {error && (
+          <div className="flex items-center gap-2 bg-red-50 text-red-700 text-xs font-bold rounded-xl px-3.5 py-2.5 mb-4">
+            <FaExclamationTriangle /> {error}
+          </div>
+        )}
+
+        <label className="block text-xs font-bold text-slate-500 mb-1.5">Discount percentage</label>
+        <input
+          type="number"
+          step="0.01"
+          min="0.01"
+          max="100"
+          required
+          value={percentage}
+          onChange={(e) => setPercentage(e.target.value)}
+          className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold mb-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500"
+          placeholder="e.g. 10"
+        />
+        <p className="text-xs text-indigo-700 font-semibold mb-4">
+          Estimated discount: {ghs(discount)} (up to 100% of the remaining balance)
+        </p>
+
+        <label className="block text-xs font-bold text-slate-500 mb-1.5">Reason (required)</label>
+        <textarea
+          required
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold mb-6 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500"
+          rows={3}
+          placeholder="e.g. Sibling discount"
+        />
+
+        <div className="flex gap-3">
+          <button type="button" onClick={onClose} disabled={busy} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50">
+            Cancel
+          </button>
+          <button type="submit" disabled={busy || Number(percentage) <= 0 || Number(percentage) > 100} className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 transition-colors disabled:opacity-50">
+            {busy ? "Applying…" : "Apply Discount"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
 // ── Row action menu ───────────────────────────────────────────────────────
-const RowMenu = ({ onPay, onArrears, onViewHistory }) => {
+const RowMenu = ({ onPay, onArrears, onDiscount, canDiscount, onViewHistory }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -234,6 +304,11 @@ const RowMenu = ({ onPay, onArrears, onViewHistory }) => {
           <button onClick={() => { setOpen(false); onArrears(); }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-bold text-amber-600 hover:bg-slate-50 transition-colors">
             <FaPlusCircle /> Add Arrears
           </button>
+          {canDiscount && (
+            <button onClick={() => { setOpen(false); onDiscount(); }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-bold text-indigo-600 hover:bg-slate-50 transition-colors">
+              <FaPercent /> Apply Discount
+            </button>
+          )}
           <button onClick={() => { setOpen(false); onViewHistory(); }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-bold text-indigo-600 hover:bg-slate-50 transition-colors">
             <FaReceipt /> View History
           </button>
@@ -244,7 +319,7 @@ const RowMenu = ({ onPay, onArrears, onViewHistory }) => {
 };
 
 // ── Detail drawer ─────────────────────────────────────────────────────────
-const Drawer = ({ fee, onClose, onPay, onArrears }) => {
+const Drawer = ({ fee, onClose, onPay, onArrears, onDiscount }) => {
   if (!fee) return null;
   const status = feeStatus(fee);
 
@@ -278,6 +353,12 @@ const Drawer = ({ fee, onClose, onPay, onArrears }) => {
                   <span className="text-slate-800 font-bold">{ghs(val)}</span>
                 </div>
               ))}
+              {Number(fee.discount) > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-indigo-600 font-bold">Discount</span>
+                  <span className="text-indigo-700 font-black">−{ghs(fee.discount)}</span>
+                </div>
+              )}
               <div className="border-t border-slate-200 pt-2.5 flex items-center justify-between">
                 <span className="text-slate-600 font-bold">Total</span>
                 <span className="text-slate-900 font-black">{ghs(fee.total_amount)}</span>
@@ -328,6 +409,11 @@ const Drawer = ({ fee, onClose, onPay, onArrears }) => {
               <button onClick={onArrears} className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-amber-50 text-amber-700 text-xs font-bold hover:bg-amber-100 transition-colors">
                 <FaPlusCircle /> Add Arrears
               </button>
+              {Number(fee.balance) > 0 && (
+                <button onClick={onDiscount} className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-indigo-50 text-indigo-700 text-xs font-bold hover:bg-indigo-100 transition-colors">
+                  <FaPercent /> Apply Discount
+                </button>
+              )}
             </div>
             <div className="mt-2.5">
               <WhatsAppSendButton
@@ -365,6 +451,7 @@ const FeesAdmin = () => {
   const [selectedFee, setSelectedFee] = useState(null);
   const [payTarget, setPayTarget] = useState(null);
   const [arrearsTarget, setArrearsTarget] = useState(null);
+  const [discountTarget, setDiscountTarget] = useState(null);
   const [modalBusy, setModalBusy] = useState(false);
   const [modalError, setModalError] = useState("");
   const [toast, setToast] = useState(null);
@@ -489,6 +576,23 @@ const FeesAdmin = () => {
       refreshAfterAction();
     } catch (err) {
       setModalError(err?.response?.data?.error || "Could not update arrears.");
+    } finally {
+      setModalBusy(false);
+    }
+  };
+
+  const submitDiscount = async ({ percentage, reason }) => {
+    setModalBusy(true);
+    setModalError("");
+    try {
+      const updatedFee = await applyFeeDiscount(discountTarget.id, { percentage, reason });
+      const appliedAmount = Number(updatedFee.discount) - Number(discountTarget.discount || 0);
+      setToast({ type: "success", message: `${ghs(appliedAmount)} discount applied for ${discountTarget.student_name}.` });
+      setDiscountTarget(null);
+      setSelectedFee(null);
+      refreshAfterAction();
+    } catch (err) {
+      setModalError(err?.response?.data?.error || "Could not apply discount.");
     } finally {
       setModalBusy(false);
     }
@@ -632,6 +736,8 @@ const FeesAdmin = () => {
                         <RowMenu
                           onPay={() => setPayTarget(fee)}
                           onArrears={() => setArrearsTarget(fee)}
+                          onDiscount={() => setDiscountTarget(fee)}
+                          canDiscount={Number(fee.balance) > 0}
                           onViewHistory={() => setSelectedFee(fee)}
                         />
                       </td>
@@ -672,6 +778,7 @@ const FeesAdmin = () => {
           onClose={() => setSelectedFee(null)}
           onPay={() => setPayTarget(selectedFee)}
           onArrears={() => setArrearsTarget(selectedFee)}
+          onDiscount={() => setDiscountTarget(selectedFee)}
         />
       )}
 
@@ -689,6 +796,14 @@ const FeesAdmin = () => {
         error={modalError}
         onClose={() => { setArrearsTarget(null); setModalError(""); }}
         onSubmit={submitArrears}
+      />
+
+      <DiscountModal
+        fee={discountTarget}
+        busy={modalBusy}
+        error={modalError}
+        onClose={() => { setDiscountTarget(null); setModalError(""); }}
+        onSubmit={submitDiscount}
       />
 
       <Toast toast={toast} onClose={() => setToast(null)} />

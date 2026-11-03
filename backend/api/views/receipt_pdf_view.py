@@ -291,6 +291,8 @@ class PaymentReceiptPDFView(APIView):
             breakdown_rows.append([para("Workbook Fee",  8), para(f"{float(fee.workbook_fee):,.2f}",  8, align=TA_RIGHT)])
         if float(fee.arrears) > 0:
             breakdown_rows.append([para("Arrears", 8, color=RED), para(f"{float(fee.arrears):,.2f}", 8, color=RED, align=TA_RIGHT)])
+        if float(fee.discount) > 0:
+            breakdown_rows.append([para("Discount", 8, color=GREEN), para(f"-{float(fee.discount):,.2f}", 8, color=GREEN, align=TA_RIGHT)])
 
         # Spacer row marks where the summary block begins
         breakdown_rows.append([para("", 3), para("", 3)])
