@@ -212,7 +212,12 @@ const DiscountModal = ({ fee, onClose, onSubmit, busy, error }) => {
   const [reason, setReason] = useState("");
   if (!fee) return null;
 
-  const discount = Math.round(Number(fee.balance) * Number(percentage || 0)) / 100;
+  const totalFees = Number(fee.amount) + Number(fee.book_user_fee) +
+    Number(fee.workbook_fee) + Number(fee.arrears);
+  const discount = Math.min(
+    Number(fee.balance),
+    Math.round(totalFees * Number(percentage || 0)) / 100
+  );
   const submit = (e) => {
     e.preventDefault();
     onSubmit({ percentage, reason });
@@ -226,7 +231,8 @@ const DiscountModal = ({ fee, onClose, onSubmit, busy, error }) => {
         </div>
         <p className="text-lg font-black text-slate-800 mb-1">Apply discount</p>
         <p className="text-sm text-slate-500 font-medium mb-5">
-          {fee.student_name} — outstanding balance{" "}
+          {fee.student_name} — total fees{" "}
+          <span className="font-bold text-slate-700">{ghs(totalFees)}</span>, outstanding balance{" "}
           <span className="font-bold text-slate-700">{ghs(fee.balance)}</span>
         </p>
 
@@ -249,7 +255,7 @@ const DiscountModal = ({ fee, onClose, onSubmit, busy, error }) => {
           placeholder="e.g. 10"
         />
         <p className="text-xs text-indigo-700 font-semibold mb-4">
-          Estimated discount: {ghs(discount)} (up to 100% of the remaining balance)
+          Estimated discount: {ghs(discount)} of total fees (capped at outstanding balance)
         </p>
 
         <label className="block text-xs font-bold text-slate-500 mb-1.5">Reason (required)</label>

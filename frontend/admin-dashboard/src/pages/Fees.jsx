@@ -444,6 +444,19 @@ const Fees = () => {
     } finally { setSavingDiscount(false); }
   };
 
+  const discountPreview = discountFee
+    ? Math.min(
+        Number(discountFee.balance),
+        Math.round(
+          (Number(discountFee.amount) +
+            Number(discountFee.book_user_fee) +
+            Number(discountFee.workbook_fee) +
+            Number(discountFee.arrears)) *
+            Number(discountPercentage || 0)
+        ) / 100
+      )
+    : 0;
+
   const submitClassAssign = async () => {
     if (!selectedClass || !selectedTerm || !classAssign.amount) { setError("Please select a class, term, and enter a fee amount."); return; }
     setAssigning(true); setError("");
@@ -868,19 +881,19 @@ const Fees = () => {
             <div className="flex items-start justify-between mb-4">
               <div>
                 <h2 className="text-lg font-bold text-slate-800">Apply Discount</h2>
-                <p className="text-sm text-slate-500">{discountFee.student_name} · Balance GHS {Number(discountFee.balance).toLocaleString()}</p>
+                <p className="text-sm text-slate-500">{discountFee.student_name} · Total fees GHS {(Number(discountFee.amount) + Number(discountFee.book_user_fee) + Number(discountFee.workbook_fee) + Number(discountFee.arrears)).toLocaleString()} · Balance GHS {Number(discountFee.balance).toLocaleString()}</p>
               </div>
               <button onClick={() => { setDiscountFee(null); setDiscountPercentage(""); setDiscountReason(""); }} className="text-slate-400 hover:text-slate-600 text-xl">✕</button>
             </div>
             <div className="space-y-3 mb-5">
               <div>
-                <label className="text-xs font-medium text-slate-600 block mb-1">Discount percentage (max 100%)</label>
+                <label className="text-xs font-medium text-slate-600 block mb-1">Discount percentage of total fees (max 100%)</label>
                 <input type="number" min="0.01" max="100" step="0.01" value={discountPercentage}
                   onChange={(e) => setDiscountPercentage(e.target.value)}
                   placeholder="e.g. 10"
                   className="w-full border border-slate-200 p-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
                 <p className="mt-1 text-xs text-indigo-700">
-                  Estimated discount: GHS {(Math.round(Number(discountFee.balance) * Number(discountPercentage || 0)) / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  Estimated discount: GHS {discountPreview.toLocaleString(undefined, { minimumFractionDigits: 2 })} (capped at outstanding balance)
                 </p>
               </div>
               <div>

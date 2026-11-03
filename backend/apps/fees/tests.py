@@ -118,7 +118,7 @@ class FeeWhatsAppEndpointTests(TestCase):
 		self.assertTrue(original.is_void)
 		self.assertEqual(original.replaced_by_id, replacement_id)
 
-	def test_admin_can_discount_remaining_balance_by_percentage(self):
+	def test_admin_discount_percentage_uses_total_fees_and_caps_at_balance(self):
 		self.user.role = "admin"
 		self.user.save(update_fields=["role"])
 		self.fee.paid = Decimal("100.00")
@@ -130,9 +130,9 @@ class FeeWhatsAppEndpointTests(TestCase):
 		)
 
 		self.assertEqual(response.status_code, 200)
-		self.assertEqual(response.data["discount"], "40.00")
-		self.assertEqual(response.data["total_amount"], Decimal("460.00"))
-		self.assertEqual(response.data["balance"], "360.00")
+		self.assertEqual(response.data["discount"], "50.00")
+		self.assertEqual(response.data["total_amount"], Decimal("450.00"))
+		self.assertEqual(response.data["balance"], "350.00")
 
 		summary = self.client.get(
 			"/api/fees/summary/",
@@ -143,14 +143,14 @@ class FeeWhatsAppEndpointTests(TestCase):
 			},
 		)
 		self.assertEqual(summary.status_code, 200)
-		self.assertEqual(summary.data["total_expected"], Decimal("460.00"))
+		self.assertEqual(summary.data["total_expected"], Decimal("450.00"))
 
 		patch_response = self.client.patch(
 			f"/api/fees/{self.fee.id}/",
 			{"discount": "0.00"},
 		)
 		self.assertEqual(patch_response.status_code, 200)
-		self.assertEqual(patch_response.data["discount"], "40.00")
+		self.assertEqual(patch_response.data["discount"], "50.00")
 
 		response = self.client.post(
 			f"/api/fees/{self.fee.id}/discount/",
