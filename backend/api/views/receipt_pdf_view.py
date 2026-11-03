@@ -154,7 +154,9 @@ class PaymentReceiptPDFView(APIView):
             ),
             id=transaction_id,
         )
-        fee     = txn.fee
+        txn.refresh_from_db()
+        fee = txn.fee
+        fee.refresh_from_db()
         student = fee.student
 
         is_void = txn.is_void
