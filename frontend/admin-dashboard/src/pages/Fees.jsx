@@ -26,6 +26,10 @@ const SCHOOL_INFO = {
 };
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
+const asNumber = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : NaN;
+};
 
 const Badge = ({ fee }) => {
   if (fee.balance <= 0) return <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">✓ Paid</span>;
@@ -369,7 +373,12 @@ const Fees = () => {
   };
 
   const submitPayment = async () => {
-    if (!payAmount || parseFloat(payAmount) <= 0) { setError("Enter a valid payment amount."); return; }
+    const amount = asNumber(payAmount);
+    const balance = asNumber(payingFee?.balance ?? 0);
+    if (!payAmount || Number.isNaN(amount) || amount <= 0 || amount > balance) {
+      setError("Enter a payment amount greater than 0 and no more than the outstanding balance.");
+      return;
+    }
     setPaying(true); setError("");
     try {
       const res = await API.post(`/fees/${payingFee.id}/pay/`, { amount: payAmount, note: payNote });
@@ -458,10 +467,34 @@ const Fees = () => {
     : 0;
 
   const submitClassAssign = async () => {
-    if (!selectedClass || !selectedTerm || !classAssign.amount) { setError("Please select a class, term, and enter a fee amount."); return; }
+    const amount = asNumber(classAssign.amount);
+    const bookUserFee = asNumber(classAssign.book_user_fee);
+    const workbookFee = asNumber(classAssign.workbook_fee);
+    const hasInvalidValues = (
+      !selectedClass ||
+      !selectedTerm ||
+      !classAssign.amount ||
+      Number.isNaN(amount) ||
+      amount <= 0 ||
+      Number.isNaN(bookUserFee) ||
+      Number.isNaN(workbookFee) ||
+      bookUserFee < 0 ||
+      workbookFee < 0
+    );
+    if (hasInvalidValues) {
+      setError("Please select a class, term, and enter valid fee values greater than or equal to zero.");
+      return;
+    }
     setAssigning(true); setError("");
     try {
-      const res = await API.post("/fees/bulk-assign/", { school_class: selectedClass, term: selectedTerm, year: selectedYear, amount: classAssign.amount, book_user_fee: classAssign.book_user_fee || 0, workbook_fee: classAssign.workbook_fee || 0 });
+      const res = await API.post("/fees/bulk-assign/", {
+        school_class: selectedClass,
+        term: selectedTerm,
+        year: selectedYear,
+        amount: classAssign.amount,
+        book_user_fee: classAssign.book_user_fee || 0,
+        workbook_fee: classAssign.workbook_fee || 0,
+      });
       setSuccess(`Done — ${res.data.created} created, ${res.data.updated} updated.`);
       setClassAssign({ ...emptyAssign }); fetchSummary();
       await downloadBill(`/fees/bill/class/?school_class=${selectedClass}&term=${selectedTerm}&year=${selectedYear}`, `class_bill_${selectedTerm}_${selectedYear}.pdf`);
@@ -470,7 +503,24 @@ const Fees = () => {
   };
 
   const submitStudentAssign = async () => {
-    if (!selectedStudent || !selectedTerm || !studentAssign.amount) { setError("Please select a student, term, and enter a fee amount."); return; }
+    const amount = asNumber(studentAssign.amount);
+    const bookUserFee = asNumber(studentAssign.book_user_fee);
+    const workbookFee = asNumber(studentAssign.workbook_fee);
+    const arrears = asNumber(studentAssign.arrears);
+    const hasInvalidValues = (
+      !selectedStudent ||
+      !selectedTerm ||
+      !studentAssign.amount ||
+      Number.isNaN(amount) ||
+      amount <= 0 ||
+      Number.isNaN(bookUserFee) ||
+      Number.isNaN(workbookFee) ||
+      Number.isNaN(arrears) ||
+      bookUserFee < 0 ||
+      workbookFee < 0 ||
+      arrears < 0
+    );
+    if (hasInvalidValues) { setError("Please select a student, term, and enter valid fee values greater than or equal to zero."); return; }
     setAssigningStudent(true); setError("");
     try {
       await API.post("/fees/assign-student/", { student: selectedStudent, term: selectedTerm, year: selectedYear, amount: studentAssign.amount, book_user_fee: studentAssign.book_user_fee || 0, workbook_fee: studentAssign.workbook_fee || 0, arrears: studentAssign.arrears || 0 });

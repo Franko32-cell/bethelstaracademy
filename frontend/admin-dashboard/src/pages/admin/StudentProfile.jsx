@@ -329,9 +329,54 @@ const Results = ({ studentId }) => {
 
 const StudentProfile = ({ student }) => {
   const [tab, setTab] = useState("Overview");
+  const [downloadingTranscript, setDownloadingTranscript] = useState(false);
+  const [transcriptError, setTranscriptError] = useState("");
+
+  const downloadTranscript = async () => {
+    setDownloadingTranscript(true);
+    setTranscriptError("");
+    try {
+      const response = await API.get(
+        `/report/student/${student.id}/transcript/`,
+        { responseType: "blob" },
+      );
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: "application/pdf" }));
+      const link = document.createElement("a");
+      link.href = url;
+      const disposition = response.headers["content-disposition"];
+      const filenameMatch = disposition?.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/);
+      link.download = filenameMatch
+        ? decodeURIComponent(filenameMatch[1] || filenameMatch[2])
+        : `transcript_${student.admission_number || student.id}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+    } catch {
+      setTranscriptError("Could not download this student's transcript. Please try again.");
+    } finally {
+      setDownloadingTranscript(false);
+    }
+  };
 
   return (
     <div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <p className="text-sm font-semibold text-slate-700">
+          {student.student_name || `${student.first_name || ""} ${student.last_name || ""}`.trim()}
+        </p>
+        <button
+          type="button"
+          onClick={downloadTranscript}
+          disabled={downloadingTranscript}
+          className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {downloadingTranscript ? "Preparing transcript…" : "Download full transcript"}
+        </button>
+      </div>
+      {transcriptError && (
+        <p role="alert" className="mb-4 text-sm text-red-600">{transcriptError}</p>
+      )}
       <div className="flex gap-1 bg-slate-100 p-1 rounded-xl mb-5 w-fit">
         {TABS.map((t) => (
           <button

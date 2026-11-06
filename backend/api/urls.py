@@ -24,6 +24,7 @@ from api.views.auth_view import (
 )
 from api.views.report_view import StudentReportView
 from api.views.report_pdf_view import StudentReportPDFView
+from api.views.transcript_pdf_view import StudentTranscriptPDFView
 from api.views.bill_pdf_view import StudentFeeBillPDFView, ClassFeeBillPDFView
 from api.views.receipt_pdf_view import PaymentReceiptPDFView
 from api.views.admission_form_pdf_view import AdmissionFormPDFView
@@ -76,6 +77,7 @@ urlpatterns = [
     path("accounts/defaulters/pdf/", DefaultersPDFView.as_view(), name="defaulters-pdf"),
     path("report/student/<int:student_id>/", StudentReportView.as_view(), name="student-report"),
     path("report/student/<int:student_id>/pdf/", StudentReportPDFView.as_view(), name="student-report-pdf"),
+    path("report/student/<int:student_id>/transcript/", StudentTranscriptPDFView.as_view(), name="student-transcript-pdf"),
     path("reports/<int:report_id>/send-whatsapp/", SendWhatsAppReportView.as_view(), name="send-whatsapp-report"),
     path("report/student/<int:student_id>/send-whatsapp/", SendWhatsAppStudentReportView.as_view(), name="send-whatsapp-student-report"),
     path("reports/send-whatsapp/bulk/", BulkSendWhatsAppReportsView.as_view(), name="bulk-send-whatsapp-reports"),

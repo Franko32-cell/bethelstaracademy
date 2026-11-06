@@ -210,6 +210,39 @@ class ResultsApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "application/pdf")
 
+    def test_student_transcript_pdf_includes_all_recorded_terms(self):
+        Result.objects.create(
+            student=self.student,
+            subject=self.subject,
+            school_class=self.school_class,
+            term="term1",
+            year=settings.CURRENT_YEAR - 1,
+            test1=5,
+            group_work=10,
+            test2=15,
+            exam=40,
+        )
+        Result.objects.create(
+            student=self.student,
+            subject=self.subject,
+            school_class=self.school_class,
+            term="term3",
+            year=settings.CURRENT_YEAR,
+            test1=10,
+            group_work=10,
+            test2=10,
+            exam=60,
+        )
+
+        response = self.client.get(
+            f"/api/report/student/{self.student.id}/transcript/",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("transcript_AD001.pdf", response["Content-Disposition"])
+        self.assertTrue(b"".join(response.streaming_content).startswith(b"%PDF"))
+
     def test_report_endpoint_returns_position_and_summary(self):
         student2 = Student.objects.create(
             user=get_user_model().objects.create_user(username="tester2", password="pass"),
